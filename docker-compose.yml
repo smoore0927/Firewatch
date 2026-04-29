@@ -1,0 +1,26 @@
+services:
+  backend:
+    build: ./firewatch-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./firewatch-backend/.env
+    volumes:
+      # Mount source so --reload picks up changes without rebuilding the image.
+      - ./firewatch-backend:/app
+    restart: unless-stopped
+
+  frontend:
+    build: ./firewatch-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      # Tells the Vite proxy to forward /api requests to the backend container.
+      VITE_BACKEND_PROXY_TARGET: http://backend:8000
+    volumes:
+      - ./firewatch-frontend:/app
+      # Prevent the host mount from shadowing the node_modules installed in the image.
+      - /app/node_modules
+    depends_on:
+      - backend
+    restart: unless-stopped
