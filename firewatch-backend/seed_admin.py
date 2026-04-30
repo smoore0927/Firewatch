@@ -10,6 +10,7 @@ via POST /api/users.
 """
 
 import sys
+from getpass import getpass
 from app.models.database import SessionLocal
 from app.models.user import User, UserRole
 from app.core.security import hash_password
@@ -21,7 +22,7 @@ def main() -> None:
         print("Email cannot be empty.")
         sys.exit(1)
 
-    password = input("Admin password (min 12 chars): ").strip()
+    password = getpass("Admin password (min 12 chars): ").strip()
     if len(password) < 12:
         print("Password must be at least 12 characters.")
         sys.exit(1)

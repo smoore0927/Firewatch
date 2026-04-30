@@ -60,51 +60,6 @@ def create_tables_for_sqlite() -> None:
         Base.metadata.create_all(bind=engine)
 
 
-@app.on_event("startup")
-def seed_admin_on_startup() -> None:
-    """
-    Create the first admin user on startup if:
-      1. SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD are set in the environment, AND
-      2. No admin user exists yet in the database.
-
-    This is idempotent -- it checks before inserting, so re-deploying or
-    restarting the app will never create a duplicate or overwrite an existing user.
-
-    In Azure App Service: set SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD in
-    Configuration -> Application settings, backed by Key Vault references.
-    Once the first admin is created, you can remove those settings so they
-    are not sitting in the environment indefinitely.
-    """
-    if not settings.SEED_ADMIN_EMAIL or not settings.SEED_ADMIN_PASSWORD:
-        return  # env vars not set -- skip silently
-
-    from app.models.database import SessionLocal
-    from app.models.user import User, UserRole
-    from app.core.security import hash_password
-
-    db = SessionLocal()
-    try:
-        existing = db.query(User).filter(
-            User.email == settings.SEED_ADMIN_EMAIL
-        ).first()
-        if existing:
-            return  # admin already exists -- nothing to do
-
-        admin = User(
-            email=settings.SEED_ADMIN_EMAIL,
-            hashed_password=hash_password(settings.SEED_ADMIN_PASSWORD),
-            role=UserRole.admin,
-            is_active=True,
-        )
-        db.add(admin)
-        db.commit()
-        logger.info("Seed admin created: %s", settings.SEED_ADMIN_EMAIL)
-    except Exception as exc:
-        logger.error("Failed to seed admin user: %s", exc)
-        db.rollback()
-    finally:
-        db.close()
-
 
 @app.get("/health", tags=["Health"])
 def health_check() -> dict:
