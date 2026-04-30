@@ -24,12 +24,6 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
-    # Initial admin seed -- only used if no admin user exists in the database.
-    # Set these in your deployment environment (Azure Key Vault, etc.).
-    # Leave blank to skip seeding (safe for subsequent deployments).
-    SEED_ADMIN_EMAIL: str = ""
-    SEED_ADMIN_PASSWORD: str = ""
-
     # CORS -- stored as a comma-separated string in .env
     # Kept as str here because pydantic-settings v2 tries to JSON-decode list[str]
     # fields, which breaks plain URLs. Parsed to a list via the cors_origins property.
