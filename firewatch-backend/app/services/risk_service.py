@@ -17,7 +17,7 @@ import enum
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models.risk import Risk, RiskAssessment, RiskHistory, RiskStatus
 from app.models.user import User, UserRole
@@ -127,7 +127,18 @@ class RiskService:
             query = query.filter(Risk.owner_id == owner_id)
 
         total = query.count()
-        items = query.order_by(Risk.created_at.desc()).offset(skip).limit(limit).all()
+        items = (
+            query.order_by(Risk.created_at.desc())
+            .options(
+                joinedload(Risk.owner),
+                selectinload(Risk.assessments),
+                selectinload(Risk.treatments),
+                selectinload(Risk.history),
+            )
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
         return {"total": total, "items": items}
 
     def get_risk(self, risk_id: str) -> Risk:

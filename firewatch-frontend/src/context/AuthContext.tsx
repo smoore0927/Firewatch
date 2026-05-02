@@ -49,10 +49,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function login(email: string, password: string): Promise<void> {
     const data = await authApi.login(email, password)
-    // After login, fetch the full user profile
-    const fullUser = await authApi.me()
-    setUser(fullUser as User)
-    void data  // login response is consumed; user state set from /me
+    setUser({
+      id: data.user_id,
+      email: data.email,
+      full_name: data.full_name,
+      role: data.role as User['role'],
+      is_active: data.is_active,
+      created_at: data.created_at,
+    })
   }
 
   async function logout(): Promise<void> {

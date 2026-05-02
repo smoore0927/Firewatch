@@ -84,7 +84,7 @@ async function request<T>(
 
 export const authApi = {
   login: (email: string, password: string) =>
-    request<{ user_id: number; email: string; role: string; full_name: string | null }>(
+    request<{ user_id: number; email: string; role: string; full_name: string | null; is_active: boolean; created_at: string }>(
       '/api/auth/login',
       { method: 'POST', body: JSON.stringify({ email, password }) }
     ),
