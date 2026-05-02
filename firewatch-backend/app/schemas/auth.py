@@ -6,6 +6,8 @@ If email is malformed or password is empty, FastAPI returns a 422 automatically
 — you never write validation boilerplate in your route.
 """
 
+from datetime import datetime
+
 from pydantic import BaseModel, EmailStr
 
 
@@ -20,3 +22,5 @@ class LoginResponse(BaseModel):
     email: str
     role: str
     full_name: str | None
+    is_active: bool
+    created_at: datetime

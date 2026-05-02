@@ -18,6 +18,7 @@ Security notes:
 """
 
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,7 +28,17 @@ from app.api import auth, dashboard, risks, users
 
 logger = logging.getLogger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if settings.DATABASE_URL.startswith("sqlite"):
+        from app.models.database import Base, engine
+        Base.metadata.create_all(bind=engine)
+    yield
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title=settings.APP_NAME,
     description="Cybersecurity Risk Register API -- NIST 800-30 aligned",
     version="0.1.0",
@@ -52,12 +63,6 @@ app.include_router(users.router, prefix="/api")
 app.include_router(risks.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 
-
-@app.on_event("startup")
-def create_tables_for_sqlite() -> None:
-    if settings.DATABASE_URL.startswith("sqlite"):
-        from app.models.database import Base, engine
-        Base.metadata.create_all(bind=engine)
 
 
 

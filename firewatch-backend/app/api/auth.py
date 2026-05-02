@@ -87,6 +87,8 @@ def login(
         email=user.email,
         role=user.role.value,
         full_name=user.full_name,
+        is_active=user.is_active,
+        created_at=user.created_at,
     )
 
 

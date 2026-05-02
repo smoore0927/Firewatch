@@ -77,7 +77,7 @@ def create_risk(
 def get_risk(
     risk_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    _: User = Depends(get_current_user),
 ) -> RiskResponse:
     return RiskService(db).get_risk(risk_id=risk_id)
 
