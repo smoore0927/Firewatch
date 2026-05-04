@@ -12,6 +12,9 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    target: 'baseline-widely-available',
+  },
   server: {
     port: 3000,
     // Proxy: in development, requests to /api/... are forwarded to the FastAPI backend.

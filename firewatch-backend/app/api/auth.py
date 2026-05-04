@@ -16,7 +16,7 @@ Cookie security settings explained:
 """
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
-from jose import JWTError
+from jwt import PyJWTError as JWTError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings

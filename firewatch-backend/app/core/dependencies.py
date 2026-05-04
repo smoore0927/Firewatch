@@ -16,7 +16,7 @@ How FastAPI dependency injection works:
 from typing import Generator
 
 from fastapi import Cookie, Depends, HTTPException, status
-from jose import JWTError
+from jwt import PyJWTError as JWTError
 from sqlalchemy.orm import Session
 
 from app.core.security import decode_token
