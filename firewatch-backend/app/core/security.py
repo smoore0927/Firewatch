@@ -22,7 +22,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import bcrypt
-from jose import jwt
+import jwt
 
 from app.core.config import settings
 
@@ -73,7 +73,7 @@ def create_refresh_token(user_id: int) -> str:
 
 def decode_token(token: str) -> dict:
     """
-    Decode and verify a JWT. Raises jose.JWTError on any failure
-    (expired, tampered, wrong signature). Callers must catch JWTError.
+    Decode and verify a JWT. Raises jwt.PyJWTError on any failure
+    (expired, tampered, wrong signature). Callers must catch JWT errors.
     """
     return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])

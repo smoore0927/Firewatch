@@ -101,7 +101,7 @@ export const authApi = {
 // Risks
 // -------------------------------------------------------------------------
 
-import type { DashboardSummary, Risk, RiskAssessment, RiskCreate, RiskListResponse, RiskUpdate, ScoreHistoryResponse, User } from '@/types'
+import type { DashboardSummary, Risk, RiskCreate, RiskListResponse, RiskUpdate, ScoreHistoryResponse, User } from '@/types'
 
 export const risksApi = {
   list: (params?: { status?: string; category?: string; owner_id?: number; due_for_review?: boolean; skip?: number; limit?: number }) => {

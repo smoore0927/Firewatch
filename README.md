@@ -1,12 +1,12 @@
 # Firewatch
 
-A NIST 800-30 aligned cybersecurity risk register. Track risks, score them by likelihood and impact, assign treatments, and monitor your risk posture over time.
+A NIST 800-30 aligned cybersecurity risk register. Track risks, score them by likelihood and impact, assign owners, and monitor your risk posture over time.
 
 ## Features
 
 - **Risk register** — create and manage risks with full NIST 800-30 fields (threat source, threat event, vulnerability, affected asset)
 - **Scoring** — likelihood × impact matrix (1–5 scale) with score history tracking
-- **Treatments** — attach mitigation plans with owners, deadlines, and status
+- **Remediation Plans** — attach mitigation plans with owners, deadlines, and status
 - **Audit trail** — field-level change history on every risk
 - **Dashboard** — summary cards, 5×5 risk matrix heatmap, and average score trend chart with date range filter
 - **Review cadence** — set a reassessment frequency on each risk; the dashboard surfaces risks past their next review date, and re-scoring auto-schedules the next review
@@ -27,7 +27,7 @@ graph TD
 
         subgraph be[" Backend Container  :8000 "]
             FastAPI["FastAPI"]
-            Auth["JWT Auth\n─────────\nbcrypt · python-jose"]
+            Auth["JWT Auth\n─────────\nbcrypt · PyJWT"]
             Logic["Risk Service\n─────────\nBusiness Logic"]
             ORM["SQLAlchemy ORM"]
         end
