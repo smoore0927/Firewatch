@@ -17,8 +17,9 @@
  */
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { risksApi } from '@/services/api'
-import type { Risk, RiskStatus } from '@/types'
+import { risksApi, usersApi } from '@/services/api'
+import type { Risk, RiskStatus, User } from '@/types'
+import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -56,6 +57,7 @@ const LIKELIHOOD_LABELS: Record<number, string> = {
 
 interface FormState {
   title: string
+  owner_id: string
   category: string
   description: string
   threat_source: string
@@ -65,10 +67,13 @@ interface FormState {
   likelihood: string   // stored as string for <select> binding; parsed to int on submit
   impact: string
   status: RiskStatus | ''
+  review_frequency_days: string
+  next_review_date: string
 }
 
 const EMPTY_FORM: FormState = {
   title: '',
+  owner_id: '',
   category: '',
   description: '',
   threat_source: '',
@@ -78,6 +83,8 @@ const EMPTY_FORM: FormState = {
   likelihood: '',
   impact: '',
   status: '',
+  review_frequency_days: '',
+  next_review_date: '',
 }
 
 // ---- Component --------------------------------------------------------------
@@ -89,11 +96,21 @@ interface RiskFormPageProps {
 export default function RiskFormPage({ mode }: RiskFormPageProps) {
   const navigate = useNavigate()
   const { riskId } = useParams<{ riskId: string }>()
+  const { user } = useAuth()
 
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [isLoading, setIsLoading] = useState(mode === 'edit')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [assignableUsers, setAssignableUsers] = useState<User[]>([])
+
+  const canAssignOwner = user?.role === 'admin' || user?.role === 'security_analyst'
+
+  useEffect(() => {
+    if (canAssignOwner) {
+      usersApi.listAssignable().then(setAssignableUsers).catch(() => {})
+    }
+  }, [canAssignOwner])
 
   // In edit mode: fetch the existing risk and populate the form.
   useEffect(() => {
@@ -104,6 +121,7 @@ export default function RiskFormPage({ mode }: RiskFormPageProps) {
         const latest = risk.assessments[0]
         setForm({
           title:          risk.title,
+          owner_id:       String(risk.owner_id),
           category:       risk.category ?? '',
           description:    risk.description ?? '',
           threat_source:  risk.threat_source ?? '',
@@ -113,6 +131,8 @@ export default function RiskFormPage({ mode }: RiskFormPageProps) {
           likelihood:     latest ? String(latest.likelihood) : '',
           impact:         latest ? String(latest.impact) : '',
           status:         risk.status,
+          review_frequency_days: risk.review_frequency_days != null ? String(risk.review_frequency_days) : '',
+          next_review_date: risk.next_review_date ?? '',
         })
       })
       .catch(() => setError('Could not load risk. It may have been deleted.'))
@@ -134,6 +154,7 @@ export default function RiskFormPage({ mode }: RiskFormPageProps) {
     // Build the payload — omit blank optional fields rather than sending empty strings.
     const payload = {
       title:          form.title.trim(),
+      ...(form.owner_id      && { owner_id:       Number(form.owner_id) }),
       ...(form.category      && { category:       form.category }),
       ...(form.description   && { description:    form.description.trim() }),
       ...(form.threat_source && { threat_source:  form.threat_source.trim() }),
@@ -147,6 +168,8 @@ export default function RiskFormPage({ mode }: RiskFormPageProps) {
         likelihood: Number(form.likelihood),
         impact:     Number(form.impact),
       }),
+      ...(form.review_frequency_days && { review_frequency_days: Number(form.review_frequency_days) }),
+      ...(form.next_review_date && { next_review_date: form.next_review_date }),
     }
 
     try {
@@ -213,6 +236,26 @@ export default function RiskFormPage({ mode }: RiskFormPageProps) {
               disabled={isSubmitting}
             />
           </div>
+
+          {canAssignOwner && assignableUsers.length > 0 && (
+            <div className="space-y-2">
+              <Label htmlFor="owner_id">Owner</Label>
+              <select
+                id="owner_id"
+                value={form.owner_id}
+                onChange={setField('owner_id')}
+                disabled={isSubmitting}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              >
+                <option value="">— defaults to me —</option>
+                {assignableUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.full_name ? `${u.full_name} (${u.email})` : u.email}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Status — edit mode only; new risks always start as 'open' */}
           {mode === 'edit' && (
@@ -314,6 +357,45 @@ export default function RiskFormPage({ mode }: RiskFormPageProps) {
               onChange={setField('affected_asset')}
               disabled={isSubmitting}
             />
+          </div>
+        </section>
+
+        {/* ---- Review cadence ---- */}
+        <section className="space-y-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Review cadence
+          </h2>
+          <p className="text-xs text-muted-foreground">Set a cadence to be reminded when this risk is due for reassessment. Re-scoring auto-schedules the next review.</p>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="review_frequency_days">Review frequency</Label>
+              <select
+                id="review_frequency_days"
+                value={form.review_frequency_days}
+                onChange={setField('review_frequency_days')}
+                disabled={isSubmitting}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              >
+                <option value="">No scheduled review</option>
+                <option value="30">Every 30 days</option>
+                <option value="60">Every 60 days</option>
+                <option value="90">Every 90 days (quarterly)</option>
+                <option value="180">Every 180 days</option>
+                <option value="365">Every 365 days (annually)</option>
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="next_review_date">Next review date</Label>
+              <Input
+                id="next_review_date"
+                type="date"
+                value={form.next_review_date}
+                onChange={setField('next_review_date')}
+                disabled={isSubmitting}
+              />
+            </div>
           </div>
         </section>
 

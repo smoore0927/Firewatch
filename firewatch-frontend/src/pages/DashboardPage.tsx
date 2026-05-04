@@ -63,7 +63,7 @@ export default function DashboardPage() {
 
       {!isLoading && summary && (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium">Total Risks</CardTitle>
@@ -103,6 +103,18 @@ export default function DashboardPage() {
                   {summary.overdue_treatments}
                 </p>
                 <CardDescription>Past target date</CardDescription>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Overdue Reviews</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className={cn('text-3xl font-bold', summary.overdue_reviews > 0 && 'text-red-600')}>
+                  {summary.overdue_reviews}
+                </p>
+                <CardDescription>Past review date</CardDescription>
               </CardContent>
             </Card>
           </div>

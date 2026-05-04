@@ -100,11 +100,21 @@ def get_dashboard_summary(
         .scalar()
     )
 
+    overdue_reviews = (
+        db.query(func.count(Risk.id))
+        .filter(Risk.deleted_at.is_(None))
+        .filter(Risk.next_review_date.isnot(None))
+        .filter(Risk.next_review_date <= date.today())
+        .filter(Risk.status.notin_([RiskStatus.closed, RiskStatus.mitigated]))
+        .scalar()
+    )
+
     return DashboardSummaryResponse(
         total=total,
         by_status=by_status,
         by_severity=by_severity,
         overdue_treatments=overdue_treatments,
+        overdue_reviews=overdue_reviews,
         risk_matrix=risk_matrix,
     )
 

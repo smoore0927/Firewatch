@@ -15,12 +15,13 @@ Cookie security settings explained:
                     silently refresh it without also stealing the refresh cookie.
 """
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from jose import JWTError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.dependencies import get_current_user, get_db
+from app.core.limiter import limiter
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -56,7 +57,9 @@ def _set_auth_cookies(response: Response, user_id: int) -> None:
 
 
 @router.post("/login", response_model=LoginResponse)
+@limiter.limit("5/minute")
 def login(
+    request: Request,
     credentials: LoginRequest,
     response: Response,
     db: Session = Depends(get_db),
@@ -93,7 +96,9 @@ def login(
 
 
 @router.post("/refresh")
+@limiter.limit("30/minute")
 def refresh(
+    request: Request,
     response: Response,
     refresh_token: str | None = Cookie(default=None),
     db: Session = Depends(get_db),

@@ -104,11 +104,12 @@ export const authApi = {
 import type { DashboardSummary, Risk, RiskAssessment, RiskCreate, RiskListResponse, RiskUpdate, ScoreHistoryResponse, User } from '@/types'
 
 export const risksApi = {
-  list: (params?: { status?: string; category?: string; owner_id?: number; skip?: number; limit?: number }) => {
+  list: (params?: { status?: string; category?: string; owner_id?: number; due_for_review?: boolean; skip?: number; limit?: number }) => {
     const qs = new URLSearchParams()
     if (params?.status) qs.set('status', params.status)
     if (params?.category) qs.set('category', params.category)
     if (params?.owner_id) qs.set('owner_id', String(params.owner_id))
+    if (params?.due_for_review) qs.set('due_for_review', 'true')
     if (params?.skip !== undefined) qs.set('skip', String(params.skip))
     if (params?.limit !== undefined) qs.set('limit', String(params.limit))
     const query = qs.toString() ? `?${qs.toString()}` : ''
