@@ -85,6 +85,11 @@ class Risk(Base):
 
     status = Column(Enum(RiskStatus), nullable=False, default=RiskStatus.open, index=True)
 
+    # How often the risk should be reassessed (days). NULL = no scheduled cadence.
+    review_frequency_days = Column(Integer, nullable=True)
+    # The next date this risk is due for reassessment; indexed for dashboard/list filters.
+    next_review_date = Column(Date, nullable=True, index=True)
+
     # Two FKs to users — owner is responsible for the risk, created_by logged it.
     # Specifying foreign_keys on the relationship is required when two FKs point
     # at the same table; otherwise SQLAlchemy cannot resolve the ambiguity.

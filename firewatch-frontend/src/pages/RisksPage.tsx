@@ -68,12 +68,14 @@ export default function RisksPage() {
 
   // Filter + sort state
   const [statusFilter, setStatusFilter] = useState<RiskStatus | 'all'>('all')
+  const [dueForReviewOnly, setDueForReviewOnly] = useState(false)
   const [sortKey, setSortKey] = useState<SortKey>('title')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
 
-  // Fetch on mount
+  // Re-fetch whenever the due-for-review toggle changes.
   useEffect(() => {
-    risksApi.list()
+    setIsLoading(true)
+    risksApi.list(dueForReviewOnly ? { due_for_review: true } : undefined)
       .then((data) => {
         setRisks(data.items)
         setTotal(data.total)
@@ -88,7 +90,7 @@ export default function RisksPage() {
         }
       })
       .finally(() => setIsLoading(false))
-  }, [])
+  }, [dueForReviewOnly])
 
   // Derived: filtered then sorted — recalculated only when dependencies change.
   // useMemo avoids re-sorting on every render (e.g. while the user types elsewhere).
@@ -175,6 +177,17 @@ export default function RisksPage() {
             Clear
           </button>
         )}
+
+        <label htmlFor="due-for-review" className="flex items-center gap-2 text-sm font-medium ml-2">
+          <input
+            id="due-for-review"
+            type="checkbox"
+            checked={dueForReviewOnly}
+            onChange={(e) => setDueForReviewOnly(e.target.checked)}
+            className="h-4 w-4 rounded border-input text-primary focus:ring-2 focus:ring-ring"
+          />
+          Due for review only
+        </label>
       </div>
 
       {/* Empty state */}
@@ -205,6 +218,7 @@ export default function RisksPage() {
                 <SortableHeader label="Score"  sortKey="score"  current={sortKey} dir={sortDir} onSort={handleSort} />
                 <SortableHeader label="Status" sortKey="status" current={sortKey} dir={sortDir} onSort={handleSort} />
                 <th className="px-4 py-3 text-left font-medium">Owner</th>
+                <th className="px-4 py-3 text-left font-medium">Next review</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -239,6 +253,25 @@ export default function RisksPage() {
                     </td>
                     <td className="px-4 py-3 text-muted-foreground text-xs">
                       {risk.owner?.full_name ?? risk.owner?.email ?? `#${risk.owner_id}`}
+                    </td>
+                    <td className="px-4 py-3 text-xs">
+                      {risk.next_review_date ? (
+                        (() => {
+                          const today = new Date().toISOString().split('T')[0]
+                          const isOverdue =
+                            risk.next_review_date <= today &&
+                            risk.status !== 'closed' &&
+                            risk.status !== 'mitigated'
+                          const formatted = new Date(risk.next_review_date).toLocaleDateString()
+                          return isOverdue ? (
+                            <Badge variant="destructive">{formatted}</Badge>
+                          ) : (
+                            <span className="text-muted-foreground">{formatted}</span>
+                          )
+                        })()
+                      ) : (
+                        <span className="text-muted-foreground italic text-xs">—</span>
+                      )}
                     </td>
                   </tr>
                 )

@@ -12,7 +12,7 @@ Three response shapes:
   RiskListResponse   — paginated list with total count for the frontend
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
@@ -90,6 +90,8 @@ class RiskCreate(BaseModel):
     affected_asset: Optional[str] = None
     category: Optional[str] = None
     owner_id: Optional[int] = None          # defaults to the creating user if omitted
+    review_frequency_days: Optional[int] = Field(None, ge=1, le=3650)
+    next_review_date: Optional[date] = None
     # Inline initial assessment — optional at creation, can be added later
     likelihood: Optional[int] = Field(None, ge=1, le=5)
     impact: Optional[int] = Field(None, ge=1, le=5)
@@ -110,6 +112,8 @@ class RiskUpdate(BaseModel):
     category: Optional[str] = None
     owner_id: Optional[int] = None
     status: Optional[RiskStatus] = None
+    review_frequency_days: Optional[int] = Field(None, ge=1, le=3650)
+    next_review_date: Optional[date] = None
     # Sending likelihood or impact creates a new RiskAssessment row
     likelihood: Optional[int] = Field(None, ge=1, le=5)
     impact: Optional[int] = Field(None, ge=1, le=5)
@@ -147,6 +151,8 @@ class RiskResponse(BaseModel):
     affected_asset: Optional[str]
     category: Optional[str]
     status: RiskStatus
+    review_frequency_days: Optional[int] = None
+    next_review_date: Optional[date] = None
     owner_id: int
     owner: Optional[RiskOwnerSummary] = None   # populated via SQLAlchemy relationship
     created_by_id: int

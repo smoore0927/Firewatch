@@ -1,18 +1,15 @@
-"""
-Schemas for authentication endpoints.
-
-Pydantic validates every field before your route handler runs.
-If email is malformed or password is empty, FastAPI returns a 422 automatically
-— you never write validation boilerplate in your route.
-"""
+"""Schemas for authentication endpoints."""
 
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr     # validates format: "user@example.com", rejects "notanemail"
+    # str instead of EmailStr: avoids 422 vs 401 distinction that enables email enumeration.
+    # The login handler queries the DB (returns None for malformed input) and always returns
+    # a uniform 401 for all failure cases.
+    email: str
     password: str
 
 

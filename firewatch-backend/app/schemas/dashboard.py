@@ -8,6 +8,7 @@ class DashboardSummaryResponse(BaseModel):
     by_status: dict[str, int]
     by_severity: dict[str, int]
     overdue_treatments: int
+    overdue_reviews: int
     risk_matrix: list[list[int]]
 
 

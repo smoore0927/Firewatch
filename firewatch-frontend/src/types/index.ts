@@ -107,6 +107,8 @@ export interface Risk {
   affected_asset: string | null
   category: string | null
   status: RiskStatus
+  review_frequency_days: number | null
+  next_review_date: string | null
   owner_id: number
   owner: RiskOwnerSummary | null
   created_by_id: number
@@ -133,6 +135,8 @@ export interface RiskCreate {
   owner_id?: number
   likelihood?: number
   impact?: number
+  review_frequency_days?: number
+  next_review_date?: string
 }
 
 export interface RiskUpdate extends Partial<RiskCreate> {
@@ -148,6 +152,7 @@ export interface DashboardSummary {
   by_status: Record<string, number>
   by_severity: Record<string, number>
   overdue_treatments: number
+  overdue_reviews: number
   risk_matrix: number[][]   // [likelihood-1][impact-1] → count
 }
 

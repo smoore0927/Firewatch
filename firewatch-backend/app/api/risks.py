@@ -41,6 +41,7 @@ def list_risks(
     status_filter: Optional[RiskStatus] = Query(None, alias="status"),
     category: Optional[str] = Query(None),
     owner_id: Optional[int] = Query(None),
+    due_for_review: Optional[bool] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -52,6 +53,7 @@ def list_risks(
         status_filter=status_filter,
         category=category,
         owner_id=owner_id,
+        due_for_review=due_for_review,
         skip=skip,
         limit=limit,
     )

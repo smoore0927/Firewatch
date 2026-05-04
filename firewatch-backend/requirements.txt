@@ -18,3 +18,6 @@ email-validator>=2.0.0     # required for Pydantic's EmailStr type
 
 # Required by FastAPI to parse JSON request bodies
 python-multipart>=0.0.9
+
+# Rate limiting
+slowapi>=0.1.9

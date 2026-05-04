@@ -14,7 +14,7 @@ Pattern:
 """
 
 import enum
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -110,6 +110,7 @@ class RiskService:
         status_filter: RiskStatus | None = None,
         category: str | None = None,
         owner_id: int | None = None,
+        due_for_review: bool | None = None,
         skip: int = 0,
         limit: int = 50,
     ) -> dict:
@@ -125,6 +126,10 @@ class RiskService:
             query = query.filter(Risk.category == category)
         if owner_id:
             query = query.filter(Risk.owner_id == owner_id)
+        if due_for_review:
+            query = query.filter(Risk.next_review_date.isnot(None))
+            query = query.filter(Risk.next_review_date <= date.today())
+            query = query.filter(Risk.status.notin_([RiskStatus.closed, RiskStatus.mitigated]))
 
         total = query.count()
         items = (
@@ -161,6 +166,8 @@ class RiskService:
             owner_id=risk_data.owner_id if risk_data.owner_id else created_by.id,
             created_by_id=created_by.id,
             status=RiskStatus.open,
+            review_frequency_days=risk_data.review_frequency_days,
+            next_review_date=risk_data.next_review_date,
         )
         self.db.add(risk)
         # flush writes the INSERT so risk.id is populated, but doesn't commit yet —
@@ -223,6 +230,8 @@ class RiskService:
                 risk_score=lh * im,
                 assessed_by_id=updated_by.id,
             ))
+            if risk.review_frequency_days:
+                risk.next_review_date = date.today() + timedelta(days=risk.review_frequency_days)
 
         self.db.commit()
         self.db.refresh(risk)
@@ -253,6 +262,8 @@ class RiskService:
             notes=data.notes,
             assessed_by_id=assessed_by.id,
         ))
+        if risk.review_frequency_days:
+            risk.next_review_date = date.today() + timedelta(days=risk.review_frequency_days)
         self.db.commit()
         self.db.refresh(risk)
         return risk
