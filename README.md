@@ -9,13 +9,14 @@ A NIST 800-30 aligned cybersecurity risk register. Track risks, score them by li
 - **Treatments** — attach mitigation plans with owners, deadlines, and status
 - **Audit trail** — field-level change history on every risk
 - **Dashboard** — summary cards, 5×5 risk matrix heatmap, and average score trend chart with date range filter
+- **Review cadence** — set a reassessment frequency on each risk; the dashboard surfaces risks past their next review date, and re-scoring auto-schedules the next review
 - **Role-based access** — admin, security analyst, risk owner, and executive viewer roles
 - **Database flexibility** — SQLite out of the box, PostgreSQL for production
 
 ## How It Works
 
 ```mermaid
-graph LR
+graph TD
     Browser([🌐 Browser])
 
     subgraph Docker Compose
@@ -38,13 +39,14 @@ graph LR
     end
 
     Browser -->|"loads app"| Vite
-    Vite -->|"serves"| React
-    React -->|"API calls  /api/*"| Vite
+    Vite -->|"serves React app"| React
+    React -->|"API calls /api/*"| Vite
     Vite -->|"proxies to :8000"| FastAPI
-    FastAPI <-->|"HTTP-only cookie"| Auth
-    FastAPI --> Logic
-    Logic --> ORM
-    ORM --> SQLite
+    FastAPI -->|"validates JWT cookie"| Auth
+    Auth -->|"user identity"| FastAPI
+    FastAPI -->|"delegates"| Logic
+    Logic -->|"queries"| ORM
+    ORM -->|"reads / writes"| SQLite
     ORM -.->|"swap via DATABASE_URL"| PG
 ```
 
@@ -166,7 +168,7 @@ If you have `make` installed:
 | Layer | Technology |
 |---|---|
 | Frontend | React 18, TypeScript, Vite, Tailwind CSS, Recharts |
-| Backend | FastAPI, SQLAlchemy 2, Alembic |
+| Backend | FastAPI, SQLAlchemy 2, Alembic, slowapi |
 | Database | SQLite (default) / PostgreSQL |
 | Auth | JWT via HTTP-only cookies |
 | Container | Docker Compose |
