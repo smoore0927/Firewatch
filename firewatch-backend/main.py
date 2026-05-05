@@ -29,7 +29,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
 from app.core.limiter import limiter
-from app.api import auth, dashboard, risks, users
+from app.api import auth, dashboard, risks, sso, users
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +82,7 @@ app.add_middleware(SlowAPIMiddleware)
 
 # Mount routers -- all endpoints live under /api/...
 app.include_router(auth.router, prefix="/api")
+app.include_router(sso.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(risks.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")

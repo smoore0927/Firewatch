@@ -23,6 +23,7 @@ from typing import Any
 
 import bcrypt
 import jwt
+from fastapi import Response
 
 from app.core.config import settings
 
@@ -77,3 +78,24 @@ def decode_token(token: str) -> dict:
     (expired, tampered, wrong signature). Callers must catch JWT errors.
     """
     return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+
+
+def set_auth_cookies(response: Response, user_id: int) -> None:
+    """Write both auth cookies. Shared by password login and OIDC callback."""
+    response.set_cookie(
+        key="access_token",
+        value=create_access_token(user_id),
+        httponly=True,
+        secure=not settings.DEBUG,
+        samesite="lax",
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=create_refresh_token(user_id),
+        httponly=True,
+        secure=not settings.DEBUG,
+        samesite="lax",
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+        path="/api/auth/refresh",
+    )

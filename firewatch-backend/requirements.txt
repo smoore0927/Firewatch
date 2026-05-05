@@ -21,3 +21,8 @@ python-multipart>=0.0.9
 
 # Rate limiting
 slowapi>=0.1.9
+
+# OIDC / SSO (optional -- enabled via OIDC_ENABLED in .env)
+authlib>=1.3.0
+httpx>=0.27.0
+itsdangerous>=2.2.0

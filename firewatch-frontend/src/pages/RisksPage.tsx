@@ -13,7 +13,7 @@
  *   For a small risk register (<500 items) client-side is simpler and instant.
  *   When the register grows, swap the filter/sort state into API query params.
  */
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { risksApi, ApiError } from '@/services/api'
@@ -21,7 +21,8 @@ import { currentScore, scoreLabel } from '@/types'
 import type { Risk, RiskStatus } from '@/types'
 import { Badge, scoreToBadgeVariant } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { ShieldAlert, ArrowUpDown, Plus } from 'lucide-react'
+import ImportRisksDialog from '@/components/risks/ImportRisksDialog'
+import { ShieldAlert, ArrowUpDown, Plus, Download, Upload } from 'lucide-react'
 
 // ---- Types ------------------------------------------------------------------
 
@@ -72,8 +73,12 @@ export default function RisksPage() {
   const [sortKey, setSortKey] = useState<SortKey>('title')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
 
-  // Re-fetch whenever the due-for-review toggle changes.
-  useEffect(() => {
+  // CSV import / export UI state
+  const [isExporting, setIsExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
+
+  const loadRisks = useCallback(() => {
     setIsLoading(true)
     risksApi.list(dueForReviewOnly ? { due_for_review: true } : undefined)
       .then((data) => {
@@ -91,6 +96,21 @@ export default function RisksPage() {
       })
       .finally(() => setIsLoading(false))
   }, [dueForReviewOnly])
+
+  // Re-fetch whenever the due-for-review toggle changes.
+  useEffect(() => { loadRisks() }, [loadRisks])
+
+  async function handleExport() {
+    setIsExporting(true)
+    setExportError(null)
+    try {
+      await risksApi.exportCsv()
+    } catch (err) {
+      setExportError(err instanceof ApiError ? err.message : 'Could not export, try again.')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   // Derived: filtered then sorted — recalculated only when dependencies change.
   // useMemo avoids re-sorting on every render (e.g. while the user types elsewhere).
@@ -144,14 +164,44 @@ export default function RisksPage() {
           <p className="text-muted-foreground text-sm">
             {total} risk{total !== 1 ? 's' : ''} total
           </p>
+          {exportError && (
+            <p className="text-destructive text-xs mt-1">{exportError}</p>
+          )}
         </div>
-        {canCreate && (
-          <Button onClick={() => navigate('/risks/new')} className="gap-2">
-            <Plus className="h-4 w-4" />
-            New risk
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={handleExport}
+            disabled={isExporting}
+            className="gap-2"
+          >
+            <Download className="h-4 w-4" />
+            {isExporting ? 'Exporting…' : 'Export CSV'}
           </Button>
-        )}
+          {canCreate && (
+            <Button
+              variant="outline"
+              onClick={() => setImportOpen(true)}
+              className="gap-2"
+            >
+              <Upload className="h-4 w-4" />
+              Import CSV
+            </Button>
+          )}
+          {canCreate && (
+            <Button onClick={() => navigate('/risks/new')} className="gap-2">
+              <Plus className="h-4 w-4" />
+              New risk
+            </Button>
+          )}
+        </div>
       </div>
+
+      <ImportRisksDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={loadRisks}
+      />
 
       {/* Filter bar */}
       <div className="flex items-center gap-3">

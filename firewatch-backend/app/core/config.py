@@ -29,10 +29,34 @@ class Settings(BaseSettings):
     # fields, which breaks plain URLs. Parsed to a list via the cors_origins property.
     CORS_ORIGINS: str = "http://localhost:3000"
 
+    # Frontend base URL — used for OIDC redirects after callback.
+    FRONTEND_URL: str = "http://localhost:3000"
+
+    # --- OIDC / SSO (all optional; SSO is off unless OIDC_ENABLED + the four required values are set) ---
+    OIDC_ENABLED: bool = False
+    OIDC_PROVIDER_NAME: str = "SSO"
+    OIDC_DISCOVERY_URL: str | None = None
+    OIDC_CLIENT_ID: str | None = None
+    OIDC_CLIENT_SECRET: str | None = None
+    OIDC_REDIRECT_URI: str | None = None
+    OIDC_SCOPES: str = "openid email profile"
+    OIDC_DEFAULT_ROLE: str = "risk_owner"
+
     @property
     def cors_origins_list(self) -> list[str]:
         """Return CORS_ORIGINS as a list, split on commas."""
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
+
+    @property
+    def oidc_is_configured(self) -> bool:
+        """True only if OIDC is enabled AND the required client/discovery values are set."""
+        return bool(
+            self.OIDC_ENABLED
+            and self.OIDC_DISCOVERY_URL
+            and self.OIDC_CLIENT_ID
+            and self.OIDC_CLIENT_SECRET
+            and self.OIDC_REDIRECT_URI
+        )
 
     @field_validator("SECRET_KEY")
     @classmethod

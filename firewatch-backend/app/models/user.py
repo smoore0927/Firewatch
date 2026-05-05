@@ -41,9 +41,18 @@ class User(Base):
 
     id = Column(Integer, primary_key=True)
     email = Column(String(255), unique=True, nullable=False, index=True)
-    hashed_password = Column(String(255), nullable=False)
+    # Nullable: SSO-only users authenticate via the IdP and never set a password.
+    hashed_password = Column(String(255), nullable=True)
     full_name = Column(String(255))
     role = Column(Enum(UserRole), nullable=False, default=UserRole.risk_owner)
+    # 'local' = email+password, 'oidc' = provisioned via SSO. Drives no logic on its
+    # own — both methods can co-exist on a single account once linked.
+    auth_provider = Column(
+        String(20), nullable=False, default="local", server_default="local"
+    )
+    # OIDC `sub` claim (or other stable IdP identifier). Used to link an SSO login
+    # back to a user record when the email address changes at the IdP.
+    external_id = Column(String(255), nullable=True, index=True)
     # is_active disables an account without deleting it -- preserves audit history
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

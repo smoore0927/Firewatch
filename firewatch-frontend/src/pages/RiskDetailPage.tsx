@@ -12,12 +12,12 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { risksApi, usersApi } from '@/services/api'
+import { risksApi, usersApi, ApiError } from '@/services/api'
 import { currentScore, scoreLabel } from '@/types'
 import type { Risk, RiskAssessment, RiskHistory, RiskStatus, User } from '@/types'
 import { Badge, scoreToBadgeVariant } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, Pencil, ArrowUp, ArrowDown, Minus, RefreshCw, ChevronDown, ChevronRight, X } from 'lucide-react'
+import { ArrowLeft, Pencil, Trash2, ArrowUp, ArrowDown, Minus, RefreshCw, ChevronDown, ChevronRight, X } from 'lucide-react'
 
 // ---- Constants --------------------------------------------------------------
 
@@ -280,6 +280,42 @@ export default function RiskDetailPage() {
     }
   }
 
+  // ---- Delete ----
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false)
+  const [isDeleting, setIsDeleting]     = useState(false)
+  const [deleteError, setDeleteError]   = useState<string | null>(null)
+
+  async function handleDelete() {
+    if (!riskId) return
+    setIsDeleting(true)
+    setDeleteError(null)
+    try {
+      await risksApi.delete(riskId)
+      setIsDeleteOpen(false)
+      navigate('/risks')
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setDeleteError(err.message)
+      } else {
+        setDeleteError('Could not delete this risk. Please try again.')
+      }
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!isDeleteOpen) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape' && !isDeleting) {
+        setIsDeleteOpen(false)
+        setDeleteError(null)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [isDeleteOpen, isDeleting])
+
   function toggleCommit(date: string) {
     setExpandedCommits((prev) => {
       const next = new Set(prev)
@@ -356,6 +392,12 @@ export default function RiskDetailPage() {
               <Button size="sm" variant="outline" className="gap-2"
                 onClick={() => navigate(`/risks/${risk.risk_id}/edit`)}>
                 <Pencil className="h-3 w-3" /> Edit
+              </Button>
+            )}
+            {user?.role === 'admin' && (
+              <Button size="sm" variant="destructive" className="gap-2"
+                onClick={() => { setDeleteError(null); setIsDeleteOpen(true) }}>
+                <Trash2 className="h-3 w-3" /> Delete
               </Button>
             )}
           </div>
@@ -777,6 +819,61 @@ export default function RiskDetailPage() {
                 {selectedChange.new_value || <em className="text-muted-foreground">Empty</em>}
               </p>
             </div>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* ---- Delete confirmation modal ---- */}
+    {isDeleteOpen && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+        onClick={() => {
+          if (isDeleting) return
+          setIsDeleteOpen(false)
+          setDeleteError(null)
+        }}
+      >
+        <div
+          className="bg-background rounded-lg border shadow-lg max-w-md w-full mx-4 p-6 space-y-4"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h3 className="font-semibold text-base">Delete this risk?</h3>
+          <div className="text-sm text-muted-foreground space-y-3">
+            <p>
+              Are you sure you want to delete{' '}
+              <span className="font-semibold text-foreground">
+                {risk.risk_id} — {risk.title}
+              </span>?
+            </p>
+            <p>
+              This is a soft delete: the risk will be removed from the register
+              but its full history and audit trail are retained.
+            </p>
+          </div>
+          {deleteError && (
+            <p className="text-sm text-destructive">{deleteError}</p>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isDeleting}
+              onClick={() => {
+                setIsDeleteOpen(false)
+                setDeleteError(null)
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={isDeleting}
+              onClick={handleDelete}
+            >
+              {isDeleting ? 'Deleting…' : 'Delete'}
+            </Button>
           </div>
         </div>
       </div>

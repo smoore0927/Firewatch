@@ -95,13 +95,69 @@ export const authApi = {
     request<{ id: number; email: string; role: string; full_name: string | null; is_active: boolean; created_at: string }>(
       '/api/auth/me'
     ),
+
+  getSsoConfig: () =>
+    request<{ enabled: boolean; provider_name: string | null }>('/api/auth/sso/config'),
 }
 
 // -------------------------------------------------------------------------
 // Risks
 // -------------------------------------------------------------------------
 
-import type { DashboardSummary, Risk, RiskCreate, RiskListResponse, RiskUpdate, ScoreHistoryResponse, User } from '@/types'
+import type { DashboardSummary, ImportResult, Risk, RiskCreate, RiskListResponse, RiskUpdate, ScoreHistoryResponse, User } from '@/types'
+
+// Parses a Content-Disposition header value to extract the filename.
+// Handles both `filename="x.csv"` and the RFC 5987 `filename*=UTF-8''x.csv` form.
+function parseContentDispositionFilename(header: string | null): string | null {
+  if (!header) return null
+  const utf8Match = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(header)
+  if (utf8Match) {
+    try { return decodeURIComponent(utf8Match[1].trim()) } catch { /* fall through */ }
+  }
+  const quoted = /filename\s*=\s*"([^"]+)"/i.exec(header)
+  if (quoted) return quoted[1]
+  const bare = /filename\s*=\s*([^;]+)/i.exec(header)
+  if (bare) return bare[1].trim()
+  return null
+}
+
+function triggerDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+// Like request<T>, but for raw fetch calls that bypass the JSON wrapper.
+// Mirrors the same 401 → refresh → retry once behaviour.
+async function rawFetchWithRetry(
+  path: string,
+  init: RequestInit,
+  retried = false,
+): Promise<Response> {
+  const res = await fetch(`${BASE_URL}${path}`, { ...init, credentials: 'include' })
+  if (res.status === 401 && !retried && !isRefreshing) {
+    isRefreshing = true
+    const refreshed = await refreshToken()
+    isRefreshing = false
+    if (refreshed) return rawFetchWithRetry(path, init, true)
+    throw new ApiError(401, 'Session expired')
+  }
+  return res
+}
+
+async function throwFromResponse(res: Response): Promise<never> {
+  let detail = `HTTP ${res.status}`
+  try {
+    const body = await res.json()
+    detail = body.detail ?? detail
+  } catch { /* response had no JSON body */ }
+  throw new ApiError(res.status, detail)
+}
 
 export const risksApi = {
   list: (params?: { status?: string; category?: string; owner_id?: number; due_for_review?: boolean; skip?: number; limit?: number }) => {
@@ -137,6 +193,39 @@ export const risksApi = {
       `/api/risks/${riskId}/assessments`,
       { method: 'POST', body: JSON.stringify(data) },
     ),
+
+  exportCsv: async (): Promise<void> => {
+    const res = await rawFetchWithRetry('/api/risks/export', { method: 'GET' })
+    if (!res.ok) await throwFromResponse(res)
+    const blob = await res.blob()
+    const today = new Date().toISOString().split('T')[0]
+    const filename =
+      parseContentDispositionFilename(res.headers.get('Content-Disposition')) ??
+      `firewatch-risks-${today}.csv`
+    triggerDownload(blob, filename)
+  },
+
+  downloadTemplate: async (): Promise<void> => {
+    const res = await rawFetchWithRetry('/api/risks/import-template', { method: 'GET' })
+    if (!res.ok) await throwFromResponse(res)
+    const blob = await res.blob()
+    const filename =
+      parseContentDispositionFilename(res.headers.get('Content-Disposition')) ??
+      'firewatch-import-template.csv'
+    triggerDownload(blob, filename)
+  },
+
+  importCsv: async (file: File): Promise<ImportResult> => {
+    const form = new FormData()
+    form.append('file', file)
+    // Note: do NOT set Content-Type — the browser sets the multipart boundary.
+    const res = await rawFetchWithRetry('/api/risks/import', {
+      method: 'POST',
+      body: form,
+    })
+    if (!res.ok) await throwFromResponse(res)
+    return res.json() as Promise<ImportResult>
+  },
 }
 
 // -------------------------------------------------------------------------
