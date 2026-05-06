@@ -114,10 +114,7 @@ def read_flow_cookie(raw: str) -> dict[str, str] | None:
 
 
 def build_authorization_url(authorization_endpoint: str, secrets_bundle: dict[str, str]) -> str:
-    """
-    Hand-build the auth URL. authlib's AsyncOAuth2Client.create_authorization_url
-    works too, but we already have all the pieces and avoid the extra dependency surface.
-    """
+    """Hand-build the auth URL — we already have all the pieces, no extra OAuth lib needed."""
     from urllib.parse import urlencode
 
     params = {

@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.dependencies import get_db
+from app.core.limiter import limiter
 from app.core.oidc import (
     OIDC_FLOW_COOKIE,
     OIDC_FLOW_COOKIE_PATH,
@@ -31,6 +32,7 @@ from app.core.oidc import (
 from app.core.security import set_auth_cookies
 from app.services.sso_service import (
     SSOAccountDisabledError,
+    SSOMissingSubError,
     SSONoEmailError,
     provision_sso_user,
 )
@@ -56,7 +58,8 @@ def sso_config() -> dict:
 
 
 @router.get("/login")
-async def sso_login() -> RedirectResponse:
+@limiter.limit("10/minute")
+async def sso_login(request: Request) -> RedirectResponse:
     """Kick off the OIDC authorization-code+PKCE flow."""
     if not settings.oidc_is_configured:
         return _login_error_redirect("not_configured")
@@ -94,6 +97,7 @@ async def sso_login() -> RedirectResponse:
 
 
 @router.get("/callback")
+@limiter.limit("10/minute")
 async def sso_callback(
     request: Request,
     code: str | None = None,
@@ -147,14 +151,10 @@ async def sso_callback(
         logger.exception("OIDC id_token validation failed")
         return _login_error_redirect("invalid_id_token")
 
-    sub = claims.get("sub")
-    email = claims.get("email")
-    full_name = claims.get("name")
-    if not sub:
-        return _login_error_redirect("invalid_id_token")
-
     try:
-        user = provision_sso_user(db, sub=sub, email=email, full_name=full_name)
+        user = provision_sso_user(db, claims)
+    except SSOMissingSubError:
+        return _login_error_redirect("invalid_id_token")
     except SSONoEmailError:
         return _login_error_redirect("no_email")
     except SSOAccountDisabledError:

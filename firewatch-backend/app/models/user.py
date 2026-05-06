@@ -1,39 +1,13 @@
-"""
-User model and role definitions.
-
-UserRole is a Python enum stored as a string in Postgres (not an integer).
-String storage makes the database readable without a lookup table:
-  SELECT * FROM users WHERE role = 'admin'
-  vs.
-  SELECT * FROM users WHERE role = 3  (what does 3 mean?)
-
-Role capabilities (enforced in API routes via require_role()):
-  admin             -- full access, user management, can delete risks
-  security_analyst  -- view all risks, generate reports, run analytics
-  risk_owner        -- create risks, edit their own risks, add mitigations
-  executive_viewer  -- read-only access to dashboards and summaries
-"""
-
-import enum
+"""User ORM model."""
 
 from sqlalchemy import Boolean, Column, DateTime, Enum, Integer, String
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
+from app.core.roles import UserRole
 from app.models.database import Base
 
-
-class UserRole(str, enum.Enum):
-    """
-    Inheriting from both str and enum.Enum means:
-      - Values compare equal to plain strings: UserRole.admin == "admin"
-      - JSON serialization works automatically (Pydantic, FastAPI responses)
-      - SQLAlchemy stores and retrieves the string value, not the enum name
-    """
-    admin = "admin"
-    security_analyst = "security_analyst"
-    risk_owner = "risk_owner"
-    executive_viewer = "executive_viewer"
+__all__ = ["User", "UserRole"]
 
 
 class User(Base):

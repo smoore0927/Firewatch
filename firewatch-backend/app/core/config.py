@@ -9,6 +9,8 @@ is malformed, the app refuses to start rather than failing at runtime.
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
 
+from app.core.roles import UserRole
+
 
 class Settings(BaseSettings):
     # App
@@ -42,6 +44,15 @@ class Settings(BaseSettings):
     OIDC_SCOPES: str = "openid email profile"
     OIDC_DEFAULT_ROLE: str = "risk_owner"
 
+    # Name of the claim in the ID token that contains the user's groups/roles.
+    # Defaults to "groups" (Entra group GUIDs, Okta group names).
+    # Set to "roles" for Entra App Roles (recommended) or a custom claim name.
+    OIDC_ROLE_CLAIM: str = "groups"
+
+    # Map from claim value → Firewatch role. Empty by default → all SSO users get OIDC_DEFAULT_ROLE.
+    # Pydantic-settings JSON-decodes dict-typed fields from env automatically.
+    OIDC_ROLE_MAP: dict[str, UserRole] = {}
+
     @property
     def cors_origins_list(self) -> list[str]:
         """Return CORS_ORIGINS as a list, split on commas."""
@@ -65,6 +76,17 @@ class Settings(BaseSettings):
             raise ValueError(
                 "SECRET_KEY is still the placeholder value. "
                 "Run: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+        return v
+
+    @field_validator("OIDC_DEFAULT_ROLE")
+    @classmethod
+    def oidc_default_role_must_be_valid(cls, v: str) -> str:
+        valid = {r.value for r in UserRole}
+        if v not in valid:
+            raise ValueError(
+                f"OIDC_DEFAULT_ROLE={v!r} is not a valid role. "
+                f"Valid roles: {', '.join(sorted(valid))}"
             )
         return v
 
