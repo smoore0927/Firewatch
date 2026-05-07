@@ -83,15 +83,15 @@ def test_sso_login_when_discovery_fails_redirects_to_error(
 # --- /callback errors ----------------------------------------------------------
 
 
-def test_sso_callback_no_cookie_redirects_to_invalid_state(client, oidc_settings):
+def test_sso_callback_no_cookie_returns_400(client, oidc_settings):
     resp = client.get(
         "/api/auth/sso/callback?code=abc&state=xyz", follow_redirects=False
     )
-    assert resp.status_code == 302
-    assert "sso_error=invalid_state" in resp.headers["location"]
+    assert resp.status_code == 400
+    assert "SSO session" in resp.json()["detail"]
 
 
-def test_sso_callback_state_mismatch_redirects(client, oidc_settings):
+def test_sso_callback_state_mismatch_returns_400(client, oidc_settings):
     cookie_payload = sign_flow_cookie(
         {"state": "real-state", "nonce": "n", "code_verifier": "v"}
     )
@@ -102,8 +102,47 @@ def test_sso_callback_state_mismatch_redirects(client, oidc_settings):
         "/api/auth/sso/callback?code=abc&state=wrong-state",
         follow_redirects=False,
     )
-    assert resp.status_code == 302
-    assert "sso_error=state_mismatch" in resp.headers["location"]
+    assert resp.status_code == 400
+    assert "state mismatch" in resp.json()["detail"]
+
+
+def test_sso_callback_missing_state_returns_400(client, oidc_settings):
+    cookie_payload = sign_flow_cookie(
+        {"state": "real-state", "nonce": "n", "code_verifier": "v"}
+    )
+    client.cookies.set(
+        OIDC_FLOW_COOKIE, cookie_payload, path=OIDC_FLOW_COOKIE_PATH
+    )
+    resp = client.get(
+        "/api/auth/sso/callback?code=abc",
+        follow_redirects=False,
+    )
+    assert resp.status_code == 400
+    assert "state" in resp.json()["detail"]
+
+
+def test_sso_callback_missing_code_returns_400(client, oidc_settings):
+    cookie_payload = sign_flow_cookie(
+        {"state": "real-state", "nonce": "n", "code_verifier": "v"}
+    )
+    client.cookies.set(
+        OIDC_FLOW_COOKIE, cookie_payload, path=OIDC_FLOW_COOKIE_PATH
+    )
+    resp = client.get(
+        "/api/auth/sso/callback?state=real-state",
+        follow_redirects=False,
+    )
+    assert resp.status_code == 400
+    assert "code" in resp.json()["detail"]
+
+
+def test_sso_callback_forged_state_no_cookie_returns_400(client, oidc_settings):
+    resp = client.get(
+        "/api/auth/sso/callback?code=abc&state=forged",
+        follow_redirects=False,
+    )
+    assert resp.status_code == 400
+    assert "SSO session" in resp.json()["detail"]
 
 
 def test_sso_callback_provider_error(client, oidc_settings):

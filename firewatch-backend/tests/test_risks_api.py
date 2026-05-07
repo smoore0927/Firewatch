@@ -595,6 +595,48 @@ def test_import_unauthenticated_returns_401(client):
     assert resp.status_code == 401
 
 
+def test_import_malformed_csv_returns_400(client, admin_user, login_as):
+    login_as(admin_user)
+    resp = client.post(
+        "/api/risks/import",
+        files={"file": ("bad.csv", b"\x00\x01\x02\xff\xfe", "text/csv")},
+    )
+    assert resp.status_code == 400
+
+
+def test_import_empty_file_returns_400(client, admin_user, login_as):
+    login_as(admin_user)
+    resp = client.post(
+        "/api/risks/import",
+        files={"file": ("empty.csv", b"", "text/csv")},
+    )
+    assert resp.status_code == 400
+
+
+def test_import_missing_required_columns_returns_400(client, admin_user, login_as):
+    login_as(admin_user)
+    csv_content = "description,threat_source\nsome desc,some source\n"
+    resp = client.post(
+        "/api/risks/import",
+        files={"file": ("risks.csv", csv_content, "text/csv")},
+    )
+    assert resp.status_code == 400
+    assert "missing required columns" in resp.json()["detail"]
+
+
+def test_import_partial_required_columns_returns_400(client, admin_user, login_as):
+    login_as(admin_user)
+    # Has title but no likelihood or impact
+    csv_content = "title,description\nTest risk,some desc\n"
+    resp = client.post(
+        "/api/risks/import",
+        files={"file": ("risks.csv", csv_content, "text/csv")},
+    )
+    assert resp.status_code == 400
+    detail = resp.json()["detail"]
+    assert "impact" in detail or "likelihood" in detail
+
+
 def test_export_then_import_round_trip(client, admin_user, login_as):
     """Exported CSV header must be a superset of importable columns and parse cleanly."""
     login_as(admin_user)

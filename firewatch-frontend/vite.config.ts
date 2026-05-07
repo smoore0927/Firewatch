@@ -17,6 +17,22 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    headers: {
+      // Frame-ancestors can't be set via <meta> tag — cover it here for dev.
+      // The meta tag in index.html covers most directives for production until
+      // a static file server (nginx / SWA) can emit these as HTTP headers.
+      'Content-Security-Policy': [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline'", // 'unsafe-inline' needed for Vite HMR
+        "style-src 'self' 'unsafe-inline'",
+        "connect-src 'self' ws://localhost:3000 wss://localhost:3000",
+        "img-src 'self' data:",
+        "font-src 'self'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+      ].join('; '),
+    },
     // Proxy: in development, requests to /api/... are forwarded to the FastAPI backend.
     // The browser sees localhost:3000 for everything, so there are no CORS issues
     // and cookies are set on the same origin.
