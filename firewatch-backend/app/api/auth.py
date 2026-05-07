@@ -15,6 +15,8 @@ Cookie security settings explained:
                     silently refresh it without also stealing the refresh cookie.
 """
 
+from typing import Annotated
+
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from jwt import PyJWTError as JWTError
 from sqlalchemy.orm import Session
@@ -24,8 +26,8 @@ from app.core.dependencies import get_current_user, get_db
 from app.core.limiter import limiter
 from app.core.security import (
     create_access_token,
-    create_refresh_token,
     decode_token,
+    set_auth_cookies,
     verify_password,
 )
 from app.models.user import User
@@ -35,34 +37,13 @@ from app.schemas.user import UserResponse
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
 
-def _set_auth_cookies(response: Response, user_id: int) -> None:
-    """Write both auth cookies. Extracted to avoid duplicating cookie settings."""
-    response.set_cookie(
-        key="access_token",
-        value=create_access_token(user_id),
-        httponly=True,
-        secure=not settings.DEBUG,
-        samesite="lax",
-        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-    )
-    response.set_cookie(
-        key="refresh_token",
-        value=create_refresh_token(user_id),
-        httponly=True,
-        secure=not settings.DEBUG,
-        samesite="lax",
-        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
-        path="/api/auth/refresh",   # restrict to the refresh endpoint only
-    )
-
-
-@router.post("/login", response_model=LoginResponse)
+@router.post("/login")
 @limiter.limit("5/minute")
 def login(
     request: Request,
     credentials: LoginRequest,
     response: Response,
-    db: Session = Depends(get_db),
+    db: Annotated[Session, Depends(get_db)],
 ) -> LoginResponse:
     """
     Validate email + password. On success, write HTTP-only auth cookies
@@ -73,9 +54,14 @@ def login(
         .filter(User.email == credentials.email, User.is_active.is_(True))
         .first()
     )
-    # Always call verify_password even on a None user to prevent timing attacks
-    # (an attacker measuring response time could detect valid vs. invalid emails)
-    password_ok = verify_password(credentials.password, user.hashed_password) if user else False
+    # SSO-only users have hashed_password=None — calling bcrypt on None would crash.
+    # The combined guard keeps the unknown-email and SSO-only-user paths indistinguishable
+    # from a wrong password, so timing/response shape doesn't leak account state.
+    password_ok = (
+        verify_password(credentials.password, user.hashed_password)
+        if user and user.hashed_password
+        else False
+    )
 
     if not user or not password_ok:
         raise HTTPException(
@@ -83,7 +69,7 @@ def login(
             detail="Invalid email or password",
         )
 
-    _set_auth_cookies(response, user.id)
+    set_auth_cookies(response, user.id)
 
     return LoginResponse(
         user_id=user.id,
@@ -100,8 +86,8 @@ def login(
 def refresh(
     request: Request,
     response: Response,
-    refresh_token: str | None = Cookie(default=None),
-    db: Session = Depends(get_db),
+    refresh_token: Annotated[str | None, Cookie()] = None,
+    db: Annotated[Session, Depends(get_db)],
 ) -> dict:
     """
     Exchange a valid refresh token for a new access token.
@@ -146,6 +132,6 @@ def logout(response: Response) -> None:
 
 
 @router.get("/me", response_model=UserResponse)
-def get_me(current_user: User = Depends(get_current_user)) -> User:
+def get_me(current_user: Annotated[User, Depends(get_current_user)]) -> User:
     """Return the currently authenticated user's profile."""
     return current_user

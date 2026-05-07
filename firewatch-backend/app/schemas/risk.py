@@ -170,3 +170,17 @@ class RiskResponse(BaseModel):
 class RiskListResponse(BaseModel):
     total: int                      # total matching records (for pagination UI)
     items: list[RiskResponse]
+
+
+# ---------------------------------------------------------------------------
+# CSV import result schemas
+# ---------------------------------------------------------------------------
+
+class ImportResultRow(BaseModel):
+    row: int            # 1-based row number in the CSV (excluding header)
+    message: str
+
+
+class ImportResult(BaseModel):
+    created: int
+    errors: list[ImportResultRow]

@@ -4,13 +4,15 @@ A NIST 800-30 aligned cybersecurity risk register. Track risks, score them by li
 
 ## Features
 
-- **Risk register** — create and manage risks with full NIST 800-30 fields (threat source, threat event, vulnerability, affected asset)
+- **Risk register** — create, manage, and delete risks with full NIST 800-30 fields (threat source, threat event, vulnerability, affected asset)
 - **Scoring** — likelihood × impact matrix (1–5 scale) with score history tracking
 - **Remediation Plans** — attach mitigation plans with owners, deadlines, and status
 - **Audit trail** — field-level change history on every risk
 - **Dashboard** — summary cards, 5×5 risk matrix heatmap, and average score trend chart with date range filter
 - **Review cadence** — set a reassessment frequency on each risk; the dashboard surfaces risks past their next review date, and re-scoring auto-schedules the next review
+- **CSV import / export** — export the full risk register to CSV; download a pre-populated template and bulk-import risks from a spreadsheet
 - **Role-based access** — admin, security analyst, risk owner, and executive viewer roles
+- **SSO / OIDC login** — optional single sign-on via any OIDC-compliant provider (Google, Microsoft Entra, Okta, Auth0, Keycloak); email/password login continues to work alongside it
 - **Database flexibility** — SQLite out of the box, PostgreSQL for production
 
 ## How It Works
@@ -116,6 +118,20 @@ All configuration lives in `firewatch-backend/.env`. The only required value is 
 | `DATABASE_URL` | `sqlite:///./firewatch.db` | Use `postgresql://user:pass@host/db` for Postgres |
 | `DEBUG` | `False` | Set `True` to enable `/docs` and `/redoc` |
 | `CORS_ORIGINS` | `http://localhost:3000` | Comma-separated list of allowed frontend origins |
+| `FRONTEND_URL` | `http://localhost:3000` | Base URL of the frontend — used for SSO post-login redirects |
+
+**SSO / OIDC (optional)** — leave `OIDC_ENABLED` unset or `False` to keep email/password-only login.
+
+| Variable | Default | Description |
+|---|---|---|
+| `OIDC_ENABLED` | `False` | Set `True` to enable the SSO login button |
+| `OIDC_DISCOVERY_URL` | — | Provider discovery URL, e.g. `https://accounts.google.com/.well-known/openid-configuration` |
+| `OIDC_CLIENT_ID` | — | OAuth 2.0 client ID from your IdP |
+| `OIDC_CLIENT_SECRET` | — | OAuth 2.0 client secret from your IdP |
+| `OIDC_REDIRECT_URI` | — | Callback URL registered with your IdP, e.g. `https://your-host/api/auth/sso/callback` |
+| `OIDC_PROVIDER_NAME` | `SSO` | Display label shown on the login button (e.g. `Okta`, `Google`) |
+| `OIDC_SCOPES` | `openid email profile` | OIDC scopes to request |
+| `OIDC_DEFAULT_ROLE` | `risk_owner` | Role assigned to new users provisioned via SSO |
 
 ## Manual Setup (without Docker)
 

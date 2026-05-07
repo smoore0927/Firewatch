@@ -143,6 +143,16 @@ export interface RiskUpdate extends Partial<RiskCreate> {
   status?: RiskStatus
 }
 
+export interface ImportResultRow {
+  row: number
+  message: string
+}
+
+export interface ImportResult {
+  created: number
+  errors: ImportResultRow[]
+}
+
 // -------------------------------------------------------------------------
 // Dashboard
 // -------------------------------------------------------------------------

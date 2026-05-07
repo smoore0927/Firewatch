@@ -9,6 +9,8 @@ is malformed, the app refuses to start rather than failing at runtime.
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
 
+from app.core.roles import UserRole
+
 
 class Settings(BaseSettings):
     # App
@@ -29,10 +31,43 @@ class Settings(BaseSettings):
     # fields, which breaks plain URLs. Parsed to a list via the cors_origins property.
     CORS_ORIGINS: str = "http://localhost:3000"
 
+    # Frontend base URL — used for OIDC redirects after callback.
+    FRONTEND_URL: str = "http://localhost:3000"
+
+    # --- OIDC / SSO (all optional; SSO is off unless OIDC_ENABLED + the four required values are set) ---
+    OIDC_ENABLED: bool = False
+    OIDC_PROVIDER_NAME: str = "SSO"
+    OIDC_DISCOVERY_URL: str | None = None
+    OIDC_CLIENT_ID: str | None = None
+    OIDC_CLIENT_SECRET: str | None = None
+    OIDC_REDIRECT_URI: str | None = None
+    OIDC_SCOPES: str = "openid email profile"
+    OIDC_DEFAULT_ROLE: str = "risk_owner"
+
+    # Name of the claim in the ID token that contains the user's groups/roles.
+    # Defaults to "groups" (Entra group GUIDs, Okta group names).
+    # Set to "roles" for Entra App Roles (recommended) or a custom claim name.
+    OIDC_ROLE_CLAIM: str = "groups"
+
+    # Map from claim value → Firewatch role. Empty by default → all SSO users get OIDC_DEFAULT_ROLE.
+    # Pydantic-settings JSON-decodes dict-typed fields from env automatically.
+    OIDC_ROLE_MAP: dict[str, UserRole] = {}
+
     @property
     def cors_origins_list(self) -> list[str]:
         """Return CORS_ORIGINS as a list, split on commas."""
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
+
+    @property
+    def oidc_is_configured(self) -> bool:
+        """True only if OIDC is enabled AND the required client/discovery values are set."""
+        return bool(
+            self.OIDC_ENABLED
+            and self.OIDC_DISCOVERY_URL
+            and self.OIDC_CLIENT_ID
+            and self.OIDC_CLIENT_SECRET
+            and self.OIDC_REDIRECT_URI
+        )
 
     @field_validator("SECRET_KEY")
     @classmethod
@@ -41,6 +76,17 @@ class Settings(BaseSettings):
             raise ValueError(
                 "SECRET_KEY is still the placeholder value. "
                 "Run: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+        return v
+
+    @field_validator("OIDC_DEFAULT_ROLE")
+    @classmethod
+    def oidc_default_role_must_be_valid(cls, v: str) -> str:
+        valid = {r.value for r in UserRole}
+        if v not in valid:
+            raise ValueError(
+                f"OIDC_DEFAULT_ROLE={v!r} is not a valid role. "
+                f"Valid roles: {', '.join(sorted(valid))}"
             )
         return v
 
