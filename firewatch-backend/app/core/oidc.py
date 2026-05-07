@@ -20,6 +20,7 @@ from typing import Any
 import httpx
 from fastapi import HTTPException, status
 from itsdangerous import BadSignature, URLSafeTimedSerializer
+from joserfc import errors as jose_errors
 from joserfc import jwt
 from joserfc.jwk import KeySet
 
@@ -154,14 +155,22 @@ async def exchange_code_for_tokens(
 
 
 async def verify_id_token(
-    id_token: str, issuer: str, jwks_uri: str, expected_nonce: str
+    id_token: str, issuer: str, jwks_uri: str, expected_nonce: str,
+    access_token: str | None = None,
 ) -> dict[str, Any]:
     """
-    Validate the id_token's signature and claims (iss, aud, exp, nonce).
+    Validate the id_token's signature and claims (iss, aud, exp, nonce, at_hash).
     Returns the claims dict on success, raises ValueError otherwise.
     """
     keys = await get_jwks(jwks_uri)
-    decoded = jwt.decode(id_token, keys)
+    try:
+        decoded = jwt.decode(id_token, keys)
+    except jose_errors.JoseError:
+        # IdP may have rotated its signing keys mid-cache — clear and re-fetch.
+        del _JWKS_CACHE[jwks_uri]
+        keys = await get_jwks(jwks_uri)
+        decoded = jwt.decode(id_token, keys)  # re-raise if it fails again
+
     claims = dict(decoded.claims)
 
     if claims.get("iss") != issuer:
@@ -178,5 +187,20 @@ async def verify_id_token(
 
     if claims.get("nonce") != expected_nonce:
         raise ValueError("nonce mismatch")
+
+    # at_hash validation (OIDC spec §3.3.2.9)
+    if access_token is not None and "at_hash" in claims:
+        alg = decoded.header.get("alg", "RS256")
+        _HASH_ALG_MAP = {
+            "RS256": "sha256", "ES256": "sha256", "PS256": "sha256",
+            "RS384": "sha384", "ES384": "sha384", "PS384": "sha384",
+            "RS512": "sha512", "ES512": "sha512", "PS512": "sha512",
+        }
+        hash_algo = _HASH_ALG_MAP.get(alg, "sha256")
+        digest = hashlib.new(hash_algo, access_token.encode()).digest()
+        half = digest[: len(digest) // 2]
+        computed_at_hash = _b64url(half)
+        if computed_at_hash != claims["at_hash"]:
+            raise ValueError("at_hash mismatch")
 
     return claims

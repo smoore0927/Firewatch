@@ -33,6 +33,7 @@ from app.core.oidc import (
 from app.core.security import set_auth_cookies
 from app.services.sso_service import (
     SSOAccountDisabledError,
+    SSOEmailNotVerifiedError,
     SSOMissingSubError,
     SSONoEmailError,
     provision_sso_user,
@@ -104,7 +105,7 @@ async def sso_callback(
     code: str | None = None,
     state: str | None = None,
     error: str | None = None,
-    error_description: str | None = None,  # noqa: ARG001 -- accepted, surfaced via `error`
+    error_description: str | None = None,  # noqa: ARG001  # NOSONAR -- accepted by FastAPI, surfaced via `error`
     oidc_flow: Annotated[str | None, Cookie()] = None,
     db: Annotated[Session, Depends(get_db)],
 ) -> RedirectResponse:
@@ -147,6 +148,7 @@ async def sso_callback(
             issuer=discovery["issuer"],
             jwks_uri=discovery["jwks_uri"],
             expected_nonce=flow["nonce"],
+            access_token=token_response.get("access_token"),
         )
     except Exception:
         logger.exception("OIDC id_token validation failed")
@@ -158,6 +160,8 @@ async def sso_callback(
         return _login_error_redirect("invalid_id_token")
     except SSONoEmailError:
         return _login_error_redirect("no_email")
+    except SSOEmailNotVerifiedError:
+        return _login_error_redirect("email_not_verified")
     except SSOAccountDisabledError:
         return _login_error_redirect("account_disabled")
 

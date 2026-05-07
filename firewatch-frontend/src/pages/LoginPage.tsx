@@ -38,6 +38,7 @@ const SSO_ERROR_MESSAGES: Record<string, string> = {
   no_id_token: 'The SSO provider did not return an identity token.',
   invalid_id_token: 'The SSO provider returned an invalid identity token. Contact your administrator.',
   no_email: 'Your SSO account does not have an email address. Contact your administrator.',
+  email_not_verified: "Your SSO account's email address has not been verified. Contact your administrator.",
   account_disabled: 'Your account is disabled. Contact your administrator.',
 }
 

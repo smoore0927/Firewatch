@@ -26,6 +26,10 @@ class SSOMissingSubError(Exception):
     """IdP did not return a sub claim."""
 
 
+class SSOEmailNotVerifiedError(Exception):
+    """IdP returned email_verified=False explicitly."""
+
+
 _ROLE_PRIVILEGE = {
     UserRole.admin: 4,
     UserRole.security_analyst: 3,
@@ -82,6 +86,8 @@ def provision_sso_user(db: Session, claims: dict[str, Any]) -> User:
         raise SSOMissingSubError()
     if not email:
         raise SSONoEmailError()
+    if claims.get("email_verified") is False:  # intentional: absent claim is OK, explicit False is not
+        raise SSOEmailNotVerifiedError()
 
     role = _resolve_role_from_claims(claims)
 
