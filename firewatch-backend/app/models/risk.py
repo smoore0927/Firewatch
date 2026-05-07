@@ -105,11 +105,13 @@ class Risk(Base):
     owner = relationship("User", foreign_keys=[owner_id], back_populates="owned_risks")
     created_by = relationship("User", foreign_keys=[created_by_id], back_populates="created_risks")
 
-    # order_by ensures .assessments[0] is always the most recent assessment
+    # order_by ensures .assessments[0] is always the most recent assessment.
+    # Tiebreak on id desc because SQLite's CURRENT_TIMESTAMP has 1-second resolution
+    # and two assessments in the same second would otherwise sort non-deterministically.
     assessments = relationship(
         "RiskAssessment",
         back_populates="risk",
-        order_by="RiskAssessment.assessed_at.desc()",
+        order_by="(RiskAssessment.assessed_at.desc(), RiskAssessment.id.desc())",
         cascade="all, delete-orphan",
     )
     treatments = relationship(
@@ -120,7 +122,8 @@ class Risk(Base):
     history = relationship(
         "RiskHistory",
         back_populates="risk",
-        order_by="RiskHistory.changed_at.desc()",
+        # Tiebreak on id desc — see assessments order_by note above.
+        order_by="(RiskHistory.changed_at.desc(), RiskHistory.id.desc())",
         cascade="all, delete-orphan",
     )
 
