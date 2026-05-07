@@ -19,7 +19,7 @@ RBAC summary:
 """
 
 from datetime import date
-from typing import Optional
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy.orm import Session
@@ -49,16 +49,16 @@ router = APIRouter(prefix="/risks", tags=["Risks"])
 MAX_IMPORT_BYTES = 5 * 1024 * 1024  # ~5 MB
 
 
-@router.get("", response_model=RiskListResponse)
+@router.get("")
 def list_risks(
-    status_filter: Optional[RiskStatus] = Query(None, alias="status"),
-    category: Optional[str] = Query(None),
-    owner_id: Optional[int] = Query(None),
-    due_for_review: Optional[bool] = Query(None),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    status_filter: Annotated[Optional[RiskStatus], Query(alias="status")] = None,
+    category: Annotated[Optional[str], Query()] = None,
+    owner_id: Annotated[Optional[int], Query()] = None,
+    due_for_review: Annotated[Optional[bool], Query()] = None,
+    skip: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> RiskListResponse:
     service = RiskService(db)
     result = service.list_risks(
@@ -73,17 +73,11 @@ def list_risks(
     return RiskListResponse(**result)
 
 
-@router.post(
-    "",
-    response_model=RiskResponse,
-    status_code=status.HTTP_201_CREATED,
-)
+@router.post("", status_code=status.HTTP_201_CREATED)
 def create_risk(
     risk_data: RiskCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(
-        require_role(UserRole.admin, UserRole.security_analyst, UserRole.risk_owner)
-    ),
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_role(UserRole.admin, UserRole.security_analyst, UserRole.risk_owner))],
 ) -> RiskResponse:
     return RiskService(db).create_risk(risk_data=risk_data, created_by=current_user)
 
@@ -95,8 +89,8 @@ def create_risk(
 
 @router.get("/export")
 def export_risks(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> Response:
     """Download all risks visible to the current user as a CSV file."""
     result = RiskService(db).list_risks(
@@ -115,7 +109,7 @@ def export_risks(
 
 @router.get("/import-template")
 def import_template(
-    _: User = Depends(get_current_user),
+    _: Annotated[User, Depends(get_current_user)],
 ) -> Response:
     """Download a CSV template (header + one example row) for risk import."""
     csv_text = import_template_csv()
@@ -128,13 +122,11 @@ def import_template(
     )
 
 
-@router.post("/import", response_model=ImportResult)
+@router.post("/import")
 def import_risks(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(
-        require_role(UserRole.admin, UserRole.security_analyst)
-    ),
+    file: Annotated[UploadFile, File()],
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_role(UserRole.admin, UserRole.security_analyst))],
 ) -> ImportResult:
     """Bulk-create risks from an uploaded CSV. Errors are reported per row."""
     raw = file.file.read()
@@ -184,33 +176,33 @@ def import_risks(
 # Path-param routes — keep below all literal-path routes
 # ---------------------------------------------------------------------------
 
-@router.get("/{risk_id}", response_model=RiskResponse)
+@router.get("/{risk_id}")
 def get_risk(
     risk_id: str,
-    db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_user)],
 ) -> RiskResponse:
     return RiskService(db).get_risk(risk_id=risk_id)
 
 
-@router.put("/{risk_id}", response_model=RiskResponse)
+@router.put("/{risk_id}")
 def update_risk(
     risk_id: str,
     risk_data: RiskUpdate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> RiskResponse:
     return RiskService(db).update_risk(
         risk_id=risk_id, risk_data=risk_data, updated_by=current_user
     )
 
 
-@router.post("/{risk_id}/assessments", response_model=RiskResponse)
+@router.post("/{risk_id}/assessments")
 def add_assessment(
     risk_id: str,
     data: AssessmentCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> RiskResponse:
     """Add a new scoring assessment to an existing risk."""
     return RiskService(db).add_assessment(
@@ -218,12 +210,12 @@ def add_assessment(
     )
 
 
-@router.post("/{risk_id}/treatments", response_model=RiskResponse)
+@router.post("/{risk_id}/treatments")
 def add_treatment(
     risk_id: str,
     data: TreatmentCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> RiskResponse:
     """Add a mitigation/treatment plan to a risk."""
     return RiskService(db).add_treatment(
@@ -234,8 +226,8 @@ def add_treatment(
 @router.delete("/{risk_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_risk(
     risk_id: str,
-    db: Session = Depends(get_db),
-    _: User = Depends(require_role(UserRole.admin)),
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_role(UserRole.admin))],
 ) -> None:
     """Soft-delete a risk. Admin only. The record is retained for audit purposes."""
     RiskService(db).delete_risk(risk_id=risk_id)

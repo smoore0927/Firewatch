@@ -15,6 +15,8 @@ Cookie security settings explained:
                     silently refresh it without also stealing the refresh cookie.
 """
 
+from typing import Annotated
+
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from jwt import PyJWTError as JWTError
 from sqlalchemy.orm import Session
@@ -35,13 +37,13 @@ from app.schemas.user import UserResponse
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
 
-@router.post("/login", response_model=LoginResponse)
+@router.post("/login")
 @limiter.limit("5/minute")
 def login(
     request: Request,
     credentials: LoginRequest,
     response: Response,
-    db: Session = Depends(get_db),
+    db: Annotated[Session, Depends(get_db)],
 ) -> LoginResponse:
     """
     Validate email + password. On success, write HTTP-only auth cookies
@@ -84,8 +86,8 @@ def login(
 def refresh(
     request: Request,
     response: Response,
-    refresh_token: str | None = Cookie(default=None),
-    db: Session = Depends(get_db),
+    refresh_token: Annotated[str | None, Cookie()] = None,
+    db: Annotated[Session, Depends(get_db)],
 ) -> dict:
     """
     Exchange a valid refresh token for a new access token.
@@ -130,6 +132,6 @@ def logout(response: Response) -> None:
 
 
 @router.get("/me", response_model=UserResponse)
-def get_me(current_user: User = Depends(get_current_user)) -> User:
+def get_me(current_user: Annotated[User, Depends(get_current_user)]) -> User:
     """Return the currently authenticated user's profile."""
     return current_user

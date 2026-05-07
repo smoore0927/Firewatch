@@ -8,6 +8,7 @@ callback path; no Starlette SessionMiddleware is required.
 from __future__ import annotations
 
 import logging
+from typing import Annotated
 from urllib.parse import quote
 
 from fastapi import APIRouter, Cookie, Depends, Request
@@ -104,12 +105,12 @@ async def sso_callback(
     state: str | None = None,
     error: str | None = None,
     error_description: str | None = None,  # noqa: ARG001 -- accepted, surfaced via `error`
-    oidc_flow: str | None = Cookie(default=None),
-    db: Session = Depends(get_db),
+    oidc_flow: Annotated[str | None, Cookie()] = None,
+    db: Annotated[Session, Depends(get_db)],
 ) -> RedirectResponse:
     """Exchange the authorization code for tokens, validate the id_token, sign the user in."""
     if error:
-        return _login_error_redirect(error)
+        return _login_error_redirect("provider_error")
 
     if not settings.oidc_is_configured:
         return _login_error_redirect("not_configured")

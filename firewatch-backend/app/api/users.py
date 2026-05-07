@@ -5,6 +5,8 @@ RBAC enforcement: require_role(UserRole.admin) is used as a dependency.
 If the calling user isn't an admin, FastAPI returns 403 before the function body runs.
 """
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -18,8 +20,8 @@ router = APIRouter(prefix="/users", tags=["Users"])
 
 @router.get("/assignable", response_model=list[UserResponse])
 def list_assignable_users(
-    db: Session = Depends(get_db),
-    _: User = Depends(require_role(UserRole.admin, UserRole.security_analyst)),
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_role(UserRole.admin, UserRole.security_analyst))],
 ) -> list[User]:
     """
     Users available for risk ownership assignment.
@@ -44,8 +46,8 @@ def list_assignable_users(
 
 @router.get("/", response_model=list[UserResponse])
 def list_users(
-    db: Session = Depends(get_db),
-    _: User = Depends(require_role(UserRole.admin)),
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_role(UserRole.admin))],
 ) -> list[User]:
     """List all active users. Admin only."""
     return db.query(User).filter(User.is_active.is_(True)).all()
@@ -54,8 +56,8 @@ def list_users(
 @router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user(
     user_data: UserCreate,
-    db: Session = Depends(get_db),
-    _: User = Depends(require_role(UserRole.admin)),
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_role(UserRole.admin))],
 ) -> User:
     """
     Create a new user account. Admin only.
@@ -83,8 +85,8 @@ def create_user(
 @router.patch("/{user_id}/deactivate", response_model=UserResponse)
 def deactivate_user(
     user_id: int,
-    db: Session = Depends(get_db),
-    current_admin: User = Depends(require_role(UserRole.admin)),
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(require_role(UserRole.admin))],
 ) -> User:
     """
     Deactivate a user (soft disable — preserves all their risk history).
