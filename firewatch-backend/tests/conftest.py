@@ -190,3 +190,54 @@ def disabled_sso_user(db) -> User:
     db.commit()
     db.refresh(user)
     return user
+
+
+# --- Role-based user factories + login helper -----------------------------------
+
+
+def _make_user(db, *, email: str, role: UserRole, password: str = "secret123") -> User:
+    user = User(
+        email=email,
+        full_name=f"{role.value} user",
+        hashed_password=hash_password(password),
+        role=role,
+        auth_provider="local",
+        is_active=True,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@pytest.fixture
+def admin_user(db) -> User:
+    return _make_user(db, email="admin@example.com", role=UserRole.admin)
+
+
+@pytest.fixture
+def analyst_user(db) -> User:
+    return _make_user(db, email="analyst@example.com", role=UserRole.security_analyst)
+
+
+@pytest.fixture
+def owner_user(db) -> User:
+    return _make_user(db, email="owner@example.com", role=UserRole.risk_owner)
+
+
+@pytest.fixture
+def viewer_user(db) -> User:
+    return _make_user(db, email="viewer@example.com", role=UserRole.executive_viewer)
+
+
+@pytest.fixture
+def login_as(client):
+    """Return a callable that logs the given user in via /api/auth/login."""
+
+    def _login(user: User, password: str = "secret123") -> None:
+        resp = client.post(
+            "/api/auth/login", json={"email": user.email, "password": password}
+        )
+        assert resp.status_code == 200, resp.text
+
+    return _login

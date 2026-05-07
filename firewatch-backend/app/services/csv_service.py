@@ -115,8 +115,21 @@ def import_template_csv() -> str:
 # Import parsing
 # ---------------------------------------------------------------------------
 
+REQUIRED_IMPORT_COLUMNS = {"title", "likelihood", "impact"}
+
 ParsedRow = tuple[int, RiskCreate | None, str | None, str | None]
 # (row_number, RiskCreate-or-None, owner_email-or-None, error-or-None)
+
+
+def validate_import_headers(content: str) -> None:
+    """Raise ValueError if the CSV is empty/unparseable or missing required columns."""
+    reader = csv.DictReader(io.StringIO(content))
+    fieldnames = reader.fieldnames
+    if not fieldnames:
+        raise ValueError("CSV file is empty or could not be parsed")
+    missing = REQUIRED_IMPORT_COLUMNS - set(fieldnames)
+    if missing:
+        raise ValueError(f"CSV is missing required columns: {', '.join(sorted(missing))}")
 
 
 def _clean(value: str | None) -> str | None:

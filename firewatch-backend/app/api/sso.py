@@ -11,7 +11,7 @@ import logging
 from typing import Annotated
 from urllib.parse import quote
 
-from fastapi import APIRouter, Cookie, Depends, Request
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -118,17 +118,19 @@ async def sso_callback(
         return _login_error_redirect("not_configured")
 
     if not oidc_flow:
-        return _login_error_redirect("invalid_state")
+        raise HTTPException(status_code=400, detail="missing or expired SSO session")
 
     flow = read_flow_cookie(oidc_flow)
     if not flow:
-        return _login_error_redirect("invalid_state")
+        raise HTTPException(status_code=400, detail="invalid SSO session")
 
-    if not state or state != flow.get("state"):
-        return _login_error_redirect("state_mismatch")
+    if not state:
+        raise HTTPException(status_code=400, detail="missing state parameter")
+    elif state != flow.get("state"):
+        raise HTTPException(status_code=400, detail="state mismatch")
 
     if not code:
-        return _login_error_redirect("missing_code")
+        raise HTTPException(status_code=400, detail="missing code parameter")
 
     try:
         discovery = await get_discovery_document()

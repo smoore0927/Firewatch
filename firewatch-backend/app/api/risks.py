@@ -41,6 +41,7 @@ from app.services.csv_service import (
     import_template_csv,
     parse_risks_csv,
     risks_to_csv,
+    validate_import_headers,
 )
 from app.services.risk_service import RiskService
 
@@ -138,6 +139,10 @@ def import_risks(
         )
 
     content = raw.decode("utf-8-sig", errors="replace")
+    try:
+        validate_import_headers(content)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     parsed = parse_risks_csv(content)
 
     service = RiskService(db)

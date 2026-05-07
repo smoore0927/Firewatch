@@ -137,7 +137,7 @@ All configuration lives in `firewatch-backend/.env`. The only required value is 
 
 ## Running Tests
 
-The backend has a pytest suite covering the OIDC authentication flow. Install test dependencies first:
+The backend has a pytest suite covering the full API surface: risks, auth, users, dashboard, and the OIDC/SSO flow. Install test dependencies first:
 
 ```bash
 cd firewatch-backend
