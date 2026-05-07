@@ -51,6 +51,7 @@ MAX_IMPORT_BYTES = 5 * 1024 * 1024  # ~5 MB
 
 @router.get("")
 def list_risks(
+    *,
     status_filter: Annotated[Optional[RiskStatus], Query(alias="status")] = None,
     category: Annotated[Optional[str], Query()] = None,
     owner_id: Annotated[Optional[int], Query()] = None,

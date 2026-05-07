@@ -132,6 +132,23 @@ All configuration lives in `firewatch-backend/.env`. The only required value is 
 | `OIDC_PROVIDER_NAME` | `SSO` | Display label shown on the login button (e.g. `Okta`, `Google`) |
 | `OIDC_SCOPES` | `openid email profile` | OIDC scopes to request |
 | `OIDC_DEFAULT_ROLE` | `risk_owner` | Role assigned to new users provisioned via SSO |
+| `OIDC_ROLE_CLAIM` | `groups` | ID token claim that contains the user's groups or roles (e.g. `groups` for Entra/Okta, `roles` for Entra App Roles) |
+| `OIDC_ROLE_MAP` | `{}` | JSON object mapping claim values to Firewatch roles, e.g. `{"sec-team": "security_analyst", "admins": "admin"}`. Unmapped users get `OIDC_DEFAULT_ROLE`. |
+
+## Running Tests
+
+The backend has a pytest suite covering the OIDC authentication flow. Install test dependencies first:
+
+```bash
+cd firewatch-backend
+pip install -r requirements-dev.txt
+```
+
+Then run:
+
+```bash
+pytest tests/ -v
+```
 
 ## Manual Setup (without Docker)
 

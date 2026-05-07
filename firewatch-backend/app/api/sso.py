@@ -102,6 +102,7 @@ async def sso_login(request: Request) -> RedirectResponse:
 @limiter.limit("10/minute")
 async def sso_callback(
     request: Request,
+    *,
     code: str | None = None,
     state: str | None = None,
     error: str | None = None,
