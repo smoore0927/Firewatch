@@ -86,6 +86,7 @@ def login(
 def refresh(
     request: Request,
     response: Response,
+    *,
     refresh_token: Annotated[str | None, Cookie()] = None,
     db: Annotated[Session, Depends(get_db)],
 ) -> dict:
