@@ -31,6 +31,7 @@ from app.core.oidc import (
     verify_id_token,
 )
 from app.core.security import set_auth_cookies
+from app.services.audit_service import record_event
 from app.services.sso_service import (
     SSOAccountDisabledError,
     SSOEmailNotVerifiedError,
@@ -157,19 +158,43 @@ async def sso_callback(
         logger.exception("OIDC id_token validation failed")
         return _login_error_redirect("invalid_id_token")
 
+    def _record_sso_failure(reason: str, email: str | None = None) -> None:
+        record_event(
+            db,
+            action="auth.sso.login.failed",
+            user_email=email or claims.get("email"),
+            resource_type="auth",
+            request=request,
+            details={"reason": reason},
+        )
+        db.commit()
+
     try:
         user = provision_sso_user(db, claims)
     except SSOMissingSubError:
+        _record_sso_failure("invalid_id_token")
         return _login_error_redirect("invalid_id_token")
     except SSONoEmailError:
+        _record_sso_failure("no_email")
         return _login_error_redirect("no_email")
     except SSOEmailNotVerifiedError:
+        _record_sso_failure("email_not_verified")
         return _login_error_redirect("email_not_verified")
     except SSOAccountDisabledError:
+        _record_sso_failure("account_disabled")
         return _login_error_redirect("account_disabled")
 
     response = RedirectResponse(f"{settings.FRONTEND_URL}/dashboard", status_code=302)
     # Drop the one-shot flow cookie before issuing the auth cookies on the same response.
     response.delete_cookie(OIDC_FLOW_COOKIE, path=OIDC_FLOW_COOKIE_PATH)
     set_auth_cookies(response, user.id)
+    record_event(
+        db,
+        action="auth.sso.login.success",
+        user=user,
+        resource_type="auth",
+        request=request,
+        details={"method": "oidc"},
+    )
+    db.commit()
     return response

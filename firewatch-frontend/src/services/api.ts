@@ -104,7 +104,7 @@ export const authApi = {
 // Risks
 // -------------------------------------------------------------------------
 
-import type { DashboardSummary, ImportResult, Risk, RiskCreate, RiskListResponse, RiskUpdate, ScoreHistoryResponse, User } from '@/types'
+import type { AuditLogListResponse, DashboardSummary, ImportResult, Risk, RiskCreate, RiskListResponse, RiskUpdate, ScoreHistoryResponse, User } from '@/types'
 
 // Parses a Content-Disposition header value to extract the filename.
 // Handles both `filename="x.csv"` and the RFC 5987 `filename*=UTF-8''x.csv` form.
@@ -247,6 +247,27 @@ export const dashboardApi = {
 
   getScoreHistory: (start: string, end: string) =>
     request<ScoreHistoryResponse>(`/api/dashboard/score-history?start=${start}&end=${end}`),
+}
+
+// -------------------------------------------------------------------------
+// Audit (admin-only)
+// -------------------------------------------------------------------------
+
+export const auditApi = {
+  list: (params?: { action?: string; user_id?: number; resource_type?: string; start?: string; end?: string; skip?: number; limit?: number }) => {
+    const qs = new URLSearchParams()
+    if (params?.action) qs.set('action', params.action)
+    if (params?.user_id !== undefined) qs.set('user_id', String(params.user_id))
+    if (params?.resource_type) qs.set('resource_type', params.resource_type)
+    if (params?.start) qs.set('start', params.start)
+    if (params?.end) qs.set('end', params.end)
+    if (params?.skip !== undefined) qs.set('skip', String(params.skip))
+    if (params?.limit !== undefined) qs.set('limit', String(params.limit))
+    const query = qs.toString() ? `?${qs.toString()}` : ''
+    return request<AuditLogListResponse>(`/api/audit/logs${query}`)
+  },
+
+  listActions: () => request<{ actions: string[] }>('/api/audit/actions'),
 }
 
 export { ApiError }

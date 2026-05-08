@@ -7,13 +7,14 @@ If the calling user isn't an admin, FastAPI returns 403 before the function body
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_db, require_role
 from app.core.security import hash_password
 from app.models.user import User, UserRole
 from app.schemas.user import UserCreate, UserResponse
+from app.services.audit_service import record_event
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -48,16 +49,21 @@ def list_assignable_users(
 def list_users(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[User, Depends(require_role(UserRole.admin))],
+    include_inactive: Annotated[bool, Query()] = False,
 ) -> list[User]:
-    """List all active users. Admin only."""
-    return db.query(User).filter(User.is_active.is_(True)).all()
+    """List users. Admin only. Pass ?include_inactive=true to include deactivated accounts."""
+    query = db.query(User)
+    if not include_inactive:
+        query = query.filter(User.is_active.is_(True))
+    return query.all()
 
 
 @router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user(
+    request: Request,
     user_data: UserCreate,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_role(UserRole.admin))],
+    current_admin: Annotated[User, Depends(require_role(UserRole.admin))],
 ) -> User:
     """
     Create a new user account. Admin only.
@@ -79,11 +85,22 @@ def create_user(
     db.add(user)
     db.commit()
     db.refresh(user)
+    record_event(
+        db,
+        action="user.created",
+        user=current_admin,
+        resource_type="user",
+        resource_id=str(user.id),
+        request=request,
+        details={"created_email": user.email, "role": user.role.value},
+    )
+    db.commit()
     return user
 
 
 @router.patch("/{user_id}/deactivate", response_model=UserResponse)
 def deactivate_user(
+    request: Request,
     user_id: int,
     db: Annotated[Session, Depends(get_db)],
     current_admin: Annotated[User, Depends(require_role(UserRole.admin))],
@@ -104,4 +121,42 @@ def deactivate_user(
     user.is_active = False
     db.commit()
     db.refresh(user)
+    record_event(
+        db,
+        action="user.deactivated",
+        user=current_admin,
+        resource_type="user",
+        resource_id=str(user.id),
+        request=request,
+        details={"deactivated_email": user.email},
+    )
+    db.commit()
+    return user
+
+
+@router.patch("/{user_id}/activate", response_model=UserResponse)
+def activate_user(
+    request: Request,
+    user_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(require_role(UserRole.admin))],
+) -> User:
+    """Reactivate a previously deactivated user account. Admin only."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    user.is_active = True
+    db.commit()
+    db.refresh(user)
+    record_event(
+        db,
+        action="user.activated",
+        user=current_admin,
+        resource_type="user",
+        resource_id=str(user.id),
+        request=request,
+        details={"activated_email": user.email},
+    )
+    db.commit()
     return user

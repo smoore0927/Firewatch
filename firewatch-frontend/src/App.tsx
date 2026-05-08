@@ -17,12 +17,14 @@
  */
 import { Routes, Route, Navigate } from 'react-router-dom'
 import ProtectedRoute from '@/components/layout/ProtectedRoute'
+import AdminRoute from '@/components/layout/AdminRoute'
 import AppLayout from '@/components/layout/AppLayout'
 import LoginPage from '@/pages/LoginPage'
 import DashboardPage from '@/pages/DashboardPage'
 import RisksPage from '@/pages/RisksPage'
 import RiskDetailPage from '@/pages/RiskDetailPage'
 import RiskFormPage from '@/pages/RiskFormPage'
+import SettingsPage from '@/pages/SettingsPage'
 
 export default function App() {
   return (
@@ -41,6 +43,11 @@ export default function App() {
           <Route path="/risks/new" element={<RiskFormPage mode="create" />} />
           <Route path="/risks/:riskId" element={<RiskDetailPage />} />
           <Route path="/risks/:riskId/edit" element={<RiskFormPage mode="edit" />} />
+
+          {/* Admin-only settings — AdminRoute redirects non-admins to /dashboard. */}
+          <Route element={<AdminRoute />}>
+            <Route path="/settings" element={<SettingsPage />} />
+          </Route>
         </Route>
       </Route>
 

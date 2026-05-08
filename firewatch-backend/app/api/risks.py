@@ -21,7 +21,7 @@ RBAC summary:
 from datetime import date
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user, get_db, require_role
@@ -37,6 +37,7 @@ from app.schemas.risk import (
     RiskUpdate,
     TreatmentCreate,
 )
+from app.services.audit_service import record_event
 from app.services.csv_service import (
     import_template_csv,
     parse_risks_csv,
@@ -77,11 +78,22 @@ def list_risks(
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_risk(
+    request: Request,
     risk_data: RiskCreate,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_role(UserRole.admin, UserRole.security_analyst, UserRole.risk_owner))],
 ) -> RiskResponse:
-    return RiskService(db).create_risk(risk_data=risk_data, created_by=current_user)
+    risk = RiskService(db).create_risk(risk_data=risk_data, created_by=current_user)
+    record_event(
+        db,
+        action="risk.created",
+        user=current_user,
+        resource_type="risk",
+        resource_id=risk.risk_id,
+        request=request,
+    )
+    db.commit()
+    return risk
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +103,7 @@ def create_risk(
 
 @router.get("/export")
 def export_risks(
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> Response:
@@ -102,6 +115,15 @@ def export_risks(
     )
     csv_text = risks_to_csv(result["items"])
     filename = f"firewatch-risks-{date.today().isoformat()}.csv"
+    record_event(
+        db,
+        action="risk.exported",
+        user=current_user,
+        resource_type="risk",
+        request=request,
+        details={"count": len(result["items"])},
+    )
+    db.commit()
     return Response(
         content=csv_text,
         media_type="text/csv",
@@ -126,6 +148,7 @@ def import_template(
 
 @router.post("/import")
 def import_risks(
+    request: Request,
     file: Annotated[UploadFile, File()],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_role(UserRole.admin, UserRole.security_analyst))],
@@ -175,7 +198,17 @@ def import_risks(
             db.rollback()
             errors.append(ImportResultRow(row=row_number, message=f"create failed: {exc}"))
 
-    return ImportResult(created=created, errors=errors)
+    result = ImportResult(created=created, errors=errors)
+    record_event(
+        db,
+        action="risk.imported",
+        user=current_user,
+        resource_type="risk",
+        request=request,
+        details={"created": result.created, "errors": len(result.errors)},
+    )
+    db.commit()
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -186,54 +219,99 @@ def import_risks(
 def get_risk(
     risk_id: str,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> RiskResponse:
-    return RiskService(db).get_risk(risk_id=risk_id)
+    return RiskService(db).get_risk(risk_id=risk_id, current_user=current_user)
 
 
 @router.put("/{risk_id}")
 def update_risk(
+    request: Request,
     risk_id: str,
     risk_data: RiskUpdate,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> RiskResponse:
-    return RiskService(db).update_risk(
+    risk = RiskService(db).update_risk(
         risk_id=risk_id, risk_data=risk_data, updated_by=current_user
     )
+    record_event(
+        db,
+        action="risk.updated",
+        user=current_user,
+        resource_type="risk",
+        resource_id=risk.risk_id,
+        request=request,
+    )
+    db.commit()
+    return risk
 
 
 @router.post("/{risk_id}/assessments")
 def add_assessment(
+    request: Request,
     risk_id: str,
     data: AssessmentCreate,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> RiskResponse:
     """Add a new scoring assessment to an existing risk."""
-    return RiskService(db).add_assessment(
+    risk = RiskService(db).add_assessment(
         risk_id=risk_id, data=data, assessed_by=current_user
     )
+    record_event(
+        db,
+        action="risk.assessment.added",
+        user=current_user,
+        resource_type="risk",
+        resource_id=risk.risk_id,
+        request=request,
+        details={"likelihood": data.likelihood, "impact": data.impact},
+    )
+    db.commit()
+    return risk
 
 
 @router.post("/{risk_id}/treatments")
 def add_treatment(
+    request: Request,
     risk_id: str,
     data: TreatmentCreate,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> RiskResponse:
     """Add a mitigation/treatment plan to a risk."""
-    return RiskService(db).add_treatment(
+    risk = RiskService(db).add_treatment(
         risk_id=risk_id, data=data, created_by=current_user
     )
+    record_event(
+        db,
+        action="risk.treatment.added",
+        user=current_user,
+        resource_type="risk",
+        resource_id=risk.risk_id,
+        request=request,
+        details={"treatment_type": data.treatment_type.value},
+    )
+    db.commit()
+    return risk
 
 
 @router.delete("/{risk_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_risk(
+    request: Request,
     risk_id: str,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_role(UserRole.admin))],
+    current_admin: Annotated[User, Depends(require_role(UserRole.admin))],
 ) -> None:
     """Soft-delete a risk. Admin only. The record is retained for audit purposes."""
     RiskService(db).delete_risk(risk_id=risk_id)
+    record_event(
+        db,
+        action="risk.deleted",
+        user=current_admin,
+        resource_type="risk",
+        resource_id=risk_id,
+        request=request,
+    )
+    db.commit()

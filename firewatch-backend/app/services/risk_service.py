@@ -146,8 +146,14 @@ class RiskService:
         )
         return {"total": total, "items": items}
 
-    def get_risk(self, risk_id: str) -> Risk:
-        return self._get_active_risk(risk_id)
+    def get_risk(self, risk_id: str, current_user: User) -> Risk:
+        risk = self._get_active_risk(risk_id)
+        if current_user.role == UserRole.risk_owner and risk.owner_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Risk owners can only view risks assigned to them",
+            )
+        return risk
 
     # -----------------------------------------------------------------------
     # Create
@@ -199,6 +205,13 @@ class RiskService:
         # exclude_unset=True means fields the caller didn't send are not in this dict,
         # so we don't accidentally overwrite data with None
         update_fields = risk_data.model_dump(exclude_unset=True)
+
+        # Only admins and security analysts may reassign ownership.
+        if "owner_id" in update_fields and updated_by.role == UserRole.risk_owner:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Risk owners cannot reassign risk ownership",
+            )
 
         # Pull out scoring fields before iterating — they need special handling
         new_likelihood = update_fields.pop("likelihood", None)

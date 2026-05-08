@@ -177,6 +177,28 @@ export interface ScoreHistoryResponse {
 }
 
 // -------------------------------------------------------------------------
+// Audit
+// -------------------------------------------------------------------------
+
+export interface AuditLog {
+  id: number
+  user_id: number | null
+  user_email: string | null
+  action: string
+  resource_type: string | null
+  resource_id: string | null
+  ip_address: string | null
+  user_agent: string | null
+  details: string | null
+  created_at: string
+}
+
+export interface AuditLogListResponse {
+  total: number
+  items: AuditLog[]
+}
+
+// -------------------------------------------------------------------------
 // Helpers
 // -------------------------------------------------------------------------
 
