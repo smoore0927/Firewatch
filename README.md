@@ -7,7 +7,8 @@ A NIST 800-30 aligned cybersecurity risk register. Track risks, score them by li
 - **Risk register** — create, manage, and delete risks with full NIST 800-30 fields (threat source, threat event, vulnerability, affected asset)
 - **Scoring** — likelihood × impact matrix (1–5 scale) with score history tracking
 - **Remediation Plans** — attach mitigation plans with owners, deadlines, and status
-- **Audit trail** — field-level change history on every risk
+- **Audit trail** — field-level change history on every risk, plus a system-wide audit log of auth, SSO, and admin actions
+- **Settings page** — admin-only view of the full audit log with filters by action, user, resource type, and date range
 - **Dashboard** — summary cards, 5×5 risk matrix heatmap, and average score trend chart with date range filter
 - **Review cadence** — set a reassessment frequency on each risk; the dashboard surfaces risks past their next review date, and re-scoring auto-schedules the next review
 - **CSV import / export** — export the full risk register to CSV; download a pre-populated template and bulk-import risks from a spreadsheet
@@ -137,17 +138,21 @@ All configuration lives in `firewatch-backend/.env`. The only required value is 
 
 ## Running Tests
 
-The backend has a pytest suite covering the full API surface: risks, auth, users, dashboard, and the OIDC/SSO flow. Install test dependencies first:
+**Backend** — pytest suite covering risks, auth, users, dashboard, SSO/OIDC, and audit logging:
 
 ```bash
 cd firewatch-backend
 pip install -r requirements-dev.txt
+pytest tests/ -v
 ```
 
-Then run:
+**Frontend** — Vitest + React Testing Library:
 
 ```bash
-pytest tests/ -v
+cd firewatch-frontend
+npm install
+npm test             # single run
+npm run test:watch   # watch mode
 ```
 
 ## Manual Setup (without Docker)

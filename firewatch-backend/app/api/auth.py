@@ -33,6 +33,7 @@ from app.core.security import (
 from app.models.user import User
 from app.schemas.auth import LoginRequest, LoginResponse
 from app.schemas.user import UserResponse
+from app.services.audit_service import record_event
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -64,12 +65,30 @@ def login(
     )
 
     if not user or not password_ok:
+        record_event(
+            db,
+            action="auth.login.failed",
+            user_email=credentials.email,
+            resource_type="auth",
+            request=request,
+            details={"reason": "invalid_credentials"},
+        )
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
 
     set_auth_cookies(response, user.id)
+    record_event(
+        db,
+        action="auth.login.success",
+        user=user,
+        resource_type="auth",
+        request=request,
+        details={"method": "password"},
+    )
+    db.commit()
 
     return LoginResponse(
         user_id=user.id,
@@ -98,18 +117,33 @@ def refresh(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or expired refresh token",
     )
+
+    def _record_failure(reason: str) -> None:
+        record_event(
+            db,
+            action="auth.refresh.failed",
+            resource_type="auth",
+            request=request,
+            details={"reason": reason},
+        )
+        db.commit()
+
     if not refresh_token:
+        _record_failure("missing_token")
         raise invalid
     try:
         payload = decode_token(refresh_token)
         if payload.get("type") != "refresh":
+            _record_failure("wrong_token_type")
             raise invalid
         user_id = int(payload["sub"])
     except (JWTError, KeyError, ValueError):
+        _record_failure("decode_error")
         raise invalid
 
     user = db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
     if not user:
+        _record_failure("user_not_found")
         raise invalid
 
     # Issue a fresh access token (not a new refresh token — avoids token rotation complexity)
@@ -125,11 +159,24 @@ def refresh(
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(response: Response) -> None:
+def logout(
+    request: Request,
+    response: Response,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> None:
     """Clear both auth cookies. The tokens remain valid until expiry server-side,
     but the client can no longer send them."""
     response.delete_cookie("access_token")
     response.delete_cookie("refresh_token", path="/api/auth/refresh")
+    record_event(
+        db,
+        action="auth.logout",
+        user=current_user,
+        resource_type="auth",
+        request=request,
+    )
+    db.commit()
 
 
 @router.get("/me", response_model=UserResponse)

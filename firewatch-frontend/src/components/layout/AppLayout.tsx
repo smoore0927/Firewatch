@@ -15,7 +15,7 @@
  */
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { ShieldAlert, LayoutDashboard, ShieldCheck, LogOut } from 'lucide-react'
+import { ShieldAlert, LayoutDashboard, ShieldCheck, LogOut, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 export default function AppLayout() {
@@ -39,36 +39,57 @@ export default function AppLayout() {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 px-3 py-4 space-y-1">
-          <NavLink
-            to="/dashboard"
-            className={({ isActive }) =>
-              `flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                isActive
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-              }`
-            }
-          >
-            <LayoutDashboard className="h-4 w-4 shrink-0" />
-            Dashboard
-          </NavLink>
+        <nav className="flex-1 px-3 py-4 flex flex-col">
+          <div className="space-y-1">
+            <NavLink
+              to="/dashboard"
+              className={({ isActive }) =>
+                `flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                  isActive
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                }`
+              }
+            >
+              <LayoutDashboard className="h-4 w-4 shrink-0" />
+              Dashboard
+            </NavLink>
 
-          <NavLink
-            to="/risks"
-            className={({ isActive }) =>
-              `flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                isActive
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-              }`
-            }
-          >
-            <ShieldCheck className="h-4 w-4 shrink-0" />
-            Risk Register
-          </NavLink>
+            <NavLink
+              to="/risks"
+              className={({ isActive }) =>
+                `flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                  isActive
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                }`
+              }
+            >
+              <ShieldCheck className="h-4 w-4 shrink-0" />
+              Risk Register
+            </NavLink>
 
-          {/* Users and Reports links added in later tasks */}
+            {/* Users and Reports links added in later tasks */}
+          </div>
+
+          {/* Admin-only entries pinned to the bottom of the nav region */}
+          {user?.role === 'admin' && (
+            <div className="mt-auto pt-4 border-t space-y-1">
+              <NavLink
+                to="/settings"
+                className={({ isActive }) =>
+                  `flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                    isActive
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                  }`
+                }
+              >
+                <Settings className="h-4 w-4 shrink-0" />
+                Settings
+              </NavLink>
+            </div>
+          )}
         </nav>
 
         {/* User info + sign out */}

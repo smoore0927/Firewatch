@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- System-wide audit log that captures auth sign-in/sign-out, SSO login, user creation/deactivation, and all risk CRUD operations with actor, IP, resource type, resource ID, and action metadata.
+- Audit log API (`GET /api/audit/logs`, `GET /api/audit/actions`) — admin-only, with filters for action, user, resource type, and date range, plus pagination.
+- Admin Settings page (`/settings`) in the frontend with a filterable, paginated audit log panel; protected by `AdminRoute` so non-admins are redirected to the dashboard.
+- `SearchableSelect` component for filtering the audit log by action or user.
+- Alembic migration adding the `audit_log` table.
+- Backend test suite additions: audit service unit tests, audit API integration tests, audit instrumentation tests across auth/SSO/risks/users endpoints (163 tests total, up from 128).
+- Frontend Vitest + React Testing Library harness (`vitest.config.ts`, `src/test/setup.ts`) with component and service-layer tests.
+
 ## [0.1.0] - 2026-05-07
 
 ### Added
