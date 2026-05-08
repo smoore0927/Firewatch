@@ -1,0 +1,101 @@
+name: CycloneDX SBOM Generation
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'firewatch-backend/requirements*.txt'
+      - 'firewatch-backend/setup.py'
+      - 'firewatch-frontend/package.json'
+      - 'firewatch-frontend/package-lock.json'
+      - '.github/workflows/cyclonedx-sbom.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'firewatch-backend/requirements*.txt'
+      - 'firewatch-backend/setup.py'
+      - 'firewatch-frontend/package.json'
+      - 'firewatch-frontend/package-lock.json'
+  workflow_dispatch:
+
+jobs:
+  generate-sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write
+      pull-requests: write
+    
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      # Backend SBOM (Python)
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install Syft for SBOM generation
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+      
+      - name: Generate backend SBOM
+        run: |
+          mkdir -p sbom
+          cd firewatch-backend
+          /usr/local/bin/syft dir:. -o cyclonedx-json > ../sbom/backend-bom.json
+          /usr/local/bin/syft dir:. -o cyclonedx-xml > ../sbom/backend-bom.xml
+          cd ..
+      
+      - name: Generate dev dependencies SBOM (includes requirements-dev.txt)
+        run: |
+          cd firewatch-backend
+          /usr/local/bin/syft dir:. -o cyclonedx-json > ../sbom/backend-dev-bom.json
+          /usr/local/bin/syft dir:. -o cyclonedx-xml > ../sbom/backend-dev-bom.xml
+          cd ..
+      
+      # Frontend SBOM (Node.js)
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: 'firewatch-frontend/package-lock.json'
+      
+      - name: Install Node dependencies
+        run: |
+          cd firewatch-frontend
+          npm ci
+          cd ..
+      
+      - name: Generate frontend SBOM
+        run: |
+          cd firewatch-frontend
+          /usr/local/bin/syft dir:. -o cyclonedx-json > ../sbom/frontend-bom.json
+          /usr/local/bin/syft dir:. -o cyclonedx-xml > ../sbom/frontend-bom.xml
+          cd ..
+      
+      # Upload SBOMs as artifacts
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom/
+          retention-days: 90
+      
+      # Optional: Commit SBOMs back to repo
+      - name: Commit SBOMs
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add sbom/
+          git commit -m "chore: update SBOM artifacts" || true
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
