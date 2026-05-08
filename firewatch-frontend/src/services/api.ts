@@ -104,7 +104,7 @@ export const authApi = {
 // Risks
 // -------------------------------------------------------------------------
 
-import type { AuditLogListResponse, DashboardSummary, ImportResult, Risk, RiskCreate, RiskListResponse, RiskUpdate, ScoreHistoryResponse, User } from '@/types'
+import type { AuditLogListResponse, DashboardSummary, ImportResult, Risk, RiskCreate, RiskListResponse, RiskReport, RiskUpdate, ScoreHistoryResponse, ScoreTotalsBySeverityResponse, User } from '@/types'
 
 // Parses a Content-Disposition header value to extract the filename.
 // Handles both `filename="x.csv"` and the RFC 5987 `filename*=UTF-8''x.csv` form.
@@ -247,6 +247,22 @@ export const dashboardApi = {
 
   getScoreHistory: (start: string, end: string) =>
     request<ScoreHistoryResponse>(`/api/dashboard/score-history?start=${start}&end=${end}`),
+
+  getScoreTotalsBySeverity: (start: string, end: string) =>
+    request<ScoreTotalsBySeverityResponse>(
+      `/api/dashboard/score-totals-by-severity?start=${start}&end=${end}`,
+    ),
+}
+
+// -------------------------------------------------------------------------
+// Reports
+// -------------------------------------------------------------------------
+
+export const reportsApi = {
+  getRiskSummary: (start: string, end: string, includeRisks: boolean) =>
+    request<RiskReport>(
+      `/api/reports/risk-summary?start=${start}&end=${end}&include_risks=${includeRisks}`,
+    ),
 }
 
 // -------------------------------------------------------------------------

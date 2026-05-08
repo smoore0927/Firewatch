@@ -176,6 +176,58 @@ export interface ScoreHistoryResponse {
   points: ScoreHistoryPoint[]
 }
 
+// Lowercase severity key form used by the score-totals-by-severity API.
+// Distinct from RiskSeverity (title-case) used in report rows.
+export type Severity = 'low' | 'medium' | 'high' | 'critical'
+
+export interface ScoreTotalsBySeverityPoint {
+  date: string
+  low: number
+  medium: number
+  high: number
+  critical: number
+}
+
+export interface ScoreTotalsBySeverityResponse {
+  points: ScoreTotalsBySeverityPoint[]
+}
+
+// -------------------------------------------------------------------------
+// Reports
+// -------------------------------------------------------------------------
+
+export type RiskSeverity = 'Low' | 'Medium' | 'High' | 'Critical' | 'Unscored'
+
+export interface RiskReportRow {
+  id: number
+  title: string
+  category: string | null
+  status: string
+  current_likelihood: number | null
+  current_impact: number | null
+  current_score: number | null
+  severity: RiskSeverity
+  owner_name: string | null
+  next_review_date: string | null
+}
+
+export interface RiskReport {
+  generated_at: string
+  generated_by: {
+    id: number
+    email: string
+    full_name: string | null
+    role: string
+  }
+  date_range: {
+    start: string
+    end: string
+  }
+  summary: DashboardSummary
+  score_history: ScoreHistoryResponse
+  risks: RiskReportRow[] | null
+}
+
 // -------------------------------------------------------------------------
 // Audit
 // -------------------------------------------------------------------------
