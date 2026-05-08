@@ -226,6 +226,11 @@ def owner_user(db) -> User:
 
 
 @pytest.fixture
+def owner_user_b(db) -> User:
+    return _make_user(db, email="owner-b@example.com", role=UserRole.risk_owner)
+
+
+@pytest.fixture
 def viewer_user(db) -> User:
     return _make_user(db, email="viewer@example.com", role=UserRole.executive_viewer)
 

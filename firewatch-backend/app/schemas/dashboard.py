@@ -20,3 +20,15 @@ class ScoreHistoryPoint(BaseModel):
 
 class ScoreHistoryResponse(BaseModel):
     points: list[ScoreHistoryPoint]
+
+
+class ScoreTotalsBySeverityPoint(BaseModel):
+    date: str         # YYYY-MM-DD
+    low: int          # sum of risk_score for assessments where score <= 5
+    medium: int       # sum where 5 < score <= 12
+    high: int         # sum where 12 < score <= 20
+    critical: int     # sum where score > 20
+
+
+class ScoreTotalsBySeverityResponse(BaseModel):
+    points: list[ScoreTotalsBySeverityPoint]

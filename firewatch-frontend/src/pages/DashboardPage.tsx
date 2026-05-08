@@ -1,11 +1,30 @@
-import { useEffect, useState } from 'react'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
+import { useEffect, useRef, useState } from 'react'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
+import { Download } from 'lucide-react'
 import { dashboardApi, ApiError } from '@/services/api'
-import type { DashboardSummary, ScoreHistoryResponse } from '@/types'
+import type { DashboardSummary, ScoreTotalsBySeverityResponse, Severity } from '@/types'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
+import ExportReportDialog from '@/components/dashboard/ExportReportDialog'
+
+const SEVERITY_COLORS: Record<Severity, string> = {
+  low: '#22c55e',
+  medium: '#facc15',
+  high: '#f97316',
+  critical: '#ef4444',
+}
+
+const SEVERITY_LABELS: Record<Severity, string> = {
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  critical: 'Critical',
+}
+
+const SEVERITY_KEYS: Severity[] = ['low', 'medium', 'high', 'critical']
 
 function toDateStr(d: Date): string {
   return d.toISOString().split('T')[0]
@@ -29,7 +48,17 @@ export default function DashboardPage() {
 
   const [startDate, setStartDate] = useState(toDateStr(ninetyDaysAgo))
   const [endDate, setEndDate] = useState(toDateStr(today))
-  const [history, setHistory] = useState<ScoreHistoryResponse | null>(null)
+  const [totals, setTotals] = useState<ScoreTotalsBySeverityResponse | null>(null)
+  const [visible, setVisible] = useState<Record<Severity, boolean>>({
+    low: false,
+    medium: true,
+    high: true,
+    critical: true,
+  })
+  const [exportOpen, setExportOpen] = useState(false)
+
+  const matrixRef = useRef<HTMLDivElement>(null)
+  const chartRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     dashboardApi.getSummary()
@@ -45,16 +74,29 @@ export default function DashboardPage() {
   }, [])
 
   useEffect(() => {
-    dashboardApi.getScoreHistory(startDate, endDate)
-      .then(setHistory)
+    dashboardApi.getScoreTotalsBySeverity(startDate, endDate)
+      .then(setTotals)
       .catch(() => {})
   }, [startDate, endDate])
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight mb-1">Dashboard</h1>
-        <p className="text-muted-foreground text-sm">Risk register overview</p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight mb-1">Dashboard</h1>
+          <p className="text-muted-foreground text-sm">Risk register overview</p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-2"
+          onClick={() => setExportOpen(true)}
+          disabled={!summary}
+        >
+          <Download className="h-4 w-4" />
+          Export PDF
+        </Button>
       </div>
 
       {error && (
@@ -121,7 +163,7 @@ export default function DashboardPage() {
 
           <div>
             <h2 className="text-sm font-medium mb-3">Risk Matrix</h2>
-            <div className="flex gap-3 items-start">
+            <div ref={matrixRef} className="flex gap-3 items-start bg-background p-2">
               {/* Y-axis label */}
               <div className="flex items-center justify-center self-stretch">
                 <span
@@ -167,11 +209,33 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <Card>
+          <Card ref={chartRef}>
             <CardHeader className="pb-2">
               <div className="flex items-end justify-between gap-4 flex-wrap">
-                <CardTitle className="text-sm font-medium">Average Risk Score Over Time</CardTitle>
-                <div className="flex items-center gap-4">
+                <CardTitle className="text-sm font-medium">Risk Score Totals by Severity</CardTitle>
+                <div className="flex items-center gap-4 flex-wrap">
+                  <div className="flex items-center gap-3">
+                    {SEVERITY_KEYS.map((key) => (
+                      <div key={key} className="flex items-center gap-1.5">
+                        <input
+                          id={`sev-${key}`}
+                          type="checkbox"
+                          checked={visible[key]}
+                          onChange={(e) =>
+                            setVisible((prev) => ({ ...prev, [key]: e.target.checked }))
+                          }
+                          className="h-4 w-4 rounded border-input accent-primary"
+                        />
+                        <Label htmlFor={`sev-${key}`} className="flex items-center gap-1.5 text-xs cursor-pointer">
+                          <span
+                            className="inline-block h-2.5 w-2.5 rounded-full"
+                            style={{ backgroundColor: SEVERITY_COLORS[key] }}
+                          />
+                          {SEVERITY_LABELS[key]}
+                        </Label>
+                      </div>
+                    ))}
+                  </div>
                   <div className="flex items-center gap-2">
                     <Label htmlFor="start-date" className="text-xs whitespace-nowrap">From</Label>
                     <Input
@@ -198,22 +262,28 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              {history && history.points.length > 0 ? (
+              {totals && totals.points.length > 0 ? (
                 <ResponsiveContainer width="100%" height={260}>
-                  <LineChart data={history.points} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                  <LineChart data={totals.points} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                     <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                    <YAxis domain={[0, 25]} tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} />
                     <Tooltip
-                      formatter={(value: number, name: string) =>
-                        name === 'avg_score' ? [value.toFixed(1), 'Avg Score'] : [value, 'Assessments']
-                      }
+                      formatter={(value: number, name: string) => [value, name]}
                     />
-                    {/* Severity band boundaries */}
-                    <ReferenceLine y={5}  stroke="#22c55e" strokeDasharray="4 4" label={{ value: 'Low', fontSize: 10, fill: '#22c55e' }} />
-                    <ReferenceLine y={12} stroke="#facc15" strokeDasharray="4 4" label={{ value: 'Medium', fontSize: 10, fill: '#ca8a04' }} />
-                    <ReferenceLine y={20} stroke="#f97316" strokeDasharray="4 4" label={{ value: 'High', fontSize: 10, fill: '#f97316' }} />
-                    <Line type="monotone" dataKey="avg_score" stroke="#3b82f6" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                    <Legend />
+                    {SEVERITY_KEYS.filter((k) => visible[k]).map((key) => (
+                      <Line
+                        key={key}
+                        type="monotone"
+                        dataKey={key}
+                        name={SEVERITY_LABELS[key]}
+                        stroke={SEVERITY_COLORS[key]}
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                        activeDot={{ r: 5 }}
+                      />
+                    ))}
                   </LineChart>
                 </ResponsiveContainer>
               ) : (
@@ -225,6 +295,16 @@ export default function DashboardPage() {
           </Card>
         </div>
       )}
+
+      <ExportReportDialog
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        defaultStart={startDate}
+        defaultEnd={endDate}
+        matrixEl={matrixRef.current}
+        chartEl={chartRef.current}
+        onError={(msg) => setError(msg)}
+      />
     </div>
   )
 }
