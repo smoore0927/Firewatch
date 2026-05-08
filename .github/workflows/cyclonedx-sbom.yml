@@ -84,15 +84,3 @@ jobs:
           name: sbom
           path: sbom/
           retention-days: 90
-      
-      # Optional: Commit SBOMs back to repo
-      - name: Commit SBOMs
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add sbom/
-          git commit -m "chore: update SBOM artifacts" || true
-          git push
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
