@@ -289,3 +289,31 @@ def test_risk_summary_writes_audit_row(client, admin_user, login_as, db):
         "end": "2026-12-31",
         "include_risks": True,
     }
+
+
+def test_risk_summary_audit_row_records_include_risks_false(
+    client, admin_user, login_as, db
+):
+    login_as(admin_user)
+    resp = client.get(
+        "/api/reports/risk-summary",
+        params={"start": "2026-01-01", "end": "2026-12-31"},
+    )
+    assert resp.status_code == 200
+
+    row = (
+        db.query(AuditLog)
+        .filter(AuditLog.action == "report_exported")
+        .order_by(AuditLog.id.desc())
+        .first()
+    )
+    assert row is not None
+    assert row.user_id == admin_user.id
+    assert row.resource_type == "report"
+    assert row.resource_id is None
+    meta = json.loads(row.details)
+    assert meta == {
+        "start": "2026-01-01",
+        "end": "2026-12-31",
+        "include_risks": False,
+    }

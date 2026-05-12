@@ -15,6 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Alembic migration adding the `audit_log` table.
 - Backend test suite additions: audit service unit tests, audit API integration tests, audit instrumentation tests across auth/SSO/risks/users endpoints (163 tests total, up from 128).
 - Frontend Vitest + React Testing Library harness (`vitest.config.ts`, `src/test/setup.ts`) with component and service-layer tests.
+- Server-side session revocation: `last_logout_at` timestamp on `User`; logout immediately invalidates all tokens (access and refresh) issued before that time. Tokens are checked on every authenticated request and on the `/refresh` endpoint.
+- SCIM 2.0 provisioning endpoints (`/api/scim/v2/*`) — bearer-token authenticated, supports full user lifecycle (create, read, list, update, replace, deactivate, delete). `PATCH active=false` deactivates the user and stamps `last_logout_at`, immediately killing active sessions. Controlled by `SCIM_ENABLED` / `SCIM_BEARER_TOKEN` env vars.
+- CAEP receiver endpoint (`POST /api/auth/sso/caep`) — accepts IdP-pushed Security Event Tokens (SETs) signed by the configured OIDC provider's JWKS. Handles `session-revoked`, `credential-change` (stamps `last_logout_at`), `account-disabled`, and `account-purged` (deactivates user). Controlled by `CAEP_ENABLED` / `CAEP_AUDIENCE` env vars.
+
+### Fixed
+- Dashboard `score-history` and `score-totals-by-severity` endpoints now use UTC-anchored datetime bounds instead of server-local time, preventing risks created near midnight UTC from being silently excluded from date-range queries on non-UTC hosts.
+- Test suite no longer leaks real OIDC credentials from the developer's `.env` into tests that assert SSO is unconfigured; an autouse fixture resets all OIDC and SCIM settings to defaults before each test.
+
+### Security
+- `POST /api/auth/refresh` now enforces `last_logout_at`: refresh tokens issued before the user's last logout are rejected with 401, closing a 7-day post-logout window where a stolen refresh token could still mint new access tokens.
+- `iat` (issued-at) claim added to all JWTs to support token revocation comparisons.
 
 ## [0.1.0] - 2026-05-07
 

@@ -75,6 +75,28 @@ def fake_id_token(rsa_key: RSAKey) -> Callable[..., str]:
 # --- OIDC settings ---------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _reset_sso_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reset OIDC + SCIM settings to declared defaults so a real .env can't leak in.
+
+    Autouse + function-scoped so it runs before every test. Tests that need a
+    configured OIDC opt back in via the `oidc_settings` fixture, which will
+    override these resets (fixture resolution is LIFO within a test).
+    """
+    monkeypatch.setattr(settings, "OIDC_ENABLED", False)
+    monkeypatch.setattr(settings, "OIDC_PROVIDER_NAME", "SSO")
+    monkeypatch.setattr(settings, "OIDC_DISCOVERY_URL", None)
+    monkeypatch.setattr(settings, "OIDC_CLIENT_ID", None)
+    monkeypatch.setattr(settings, "OIDC_CLIENT_SECRET", None)
+    monkeypatch.setattr(settings, "OIDC_REDIRECT_URI", None)
+    monkeypatch.setattr(settings, "OIDC_SCOPES", "openid email profile")
+    monkeypatch.setattr(settings, "OIDC_DEFAULT_ROLE", "risk_owner")
+    monkeypatch.setattr(settings, "OIDC_ROLE_CLAIM", "groups")
+    monkeypatch.setattr(settings, "OIDC_ROLE_MAP", {})
+    monkeypatch.setattr(settings, "SCIM_ENABLED", False)
+    monkeypatch.setattr(settings, "SCIM_BEARER_TOKEN", None)
+
+
 @pytest.fixture
 def oidc_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     """Patch settings so OIDC is 'configured' for the test."""

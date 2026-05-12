@@ -13,12 +13,15 @@ How FastAPI dependency injection works:
         ...
 """
 
+import secrets
 from typing import Generator
+from datetime import timezone
 
-from fastapi import Cookie, Depends, HTTPException, status
+from fastapi import Cookie, Depends, HTTPException, Request, status
 from jwt import PyJWTError as JWTError
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.security import decode_token
 from app.models.database import SessionLocal
 from app.models.user import User, UserRole
@@ -71,6 +74,14 @@ def get_current_user(
     if not user:
         raise credentials_exception
 
+    last_logout = user.last_logout_at
+    if last_logout is not None:
+        # iat is a Unix timestamp (int); last_logout_at is timezone-aware datetime
+        token_iat = payload.get("iat", 0)
+        logout_ts = last_logout.replace(tzinfo=timezone.utc).timestamp() if last_logout.tzinfo is None else last_logout.timestamp()
+        if token_iat < logout_ts:
+            raise credentials_exception
+
     return user
 
 
@@ -96,3 +107,26 @@ def require_role(*roles: UserRole):
         return current_user
 
     return role_checker
+
+
+def require_scim_token(request: Request) -> None:
+    """Validate the SCIM bearer token from the Authorization header (timing-safe)."""
+    if not settings.SCIM_ENABLED or not settings.SCIM_BEARER_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="SCIM_NOT_CONFIGURED",
+        )
+
+    header = request.headers.get("authorization") or ""
+    expected_prefix = "Bearer "
+    if not header.startswith(expected_prefix):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid Authorization header",
+        )
+    presented = header[len(expected_prefix):]
+    if not secrets.compare_digest(presented, settings.SCIM_BEARER_TOKEN):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid bearer token",
+        )

@@ -134,6 +134,24 @@ def test_refresh_for_inactive_user_returns_401(client, db):
     assert resp.status_code == 401
 
 
+def test_refresh_after_logout_returns_401(client, existing_local_user):
+    """A refresh token issued before logout must be rejected after the user logs out."""
+    # Log in to get cookies (including refresh_token)
+    resp = client.post(
+        "/api/auth/login",
+        json={"email": "local@example.com", "password": "secret123"},
+    )
+    assert resp.status_code == 200
+
+    # Log out — sets last_logout_at on the user record
+    resp = client.post("/api/auth/logout")
+    assert resp.status_code == 204
+
+    # Attempt to use the stale refresh token cookie
+    resp = client.post("/api/auth/refresh")
+    assert resp.status_code == 401
+
+
 # --- /logout -------------------------------------------------------------------
 
 

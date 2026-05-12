@@ -53,6 +53,15 @@ class Settings(BaseSettings):
     # Pydantic-settings JSON-decodes dict-typed fields from env automatically.
     OIDC_ROLE_MAP: dict[str, UserRole] = {}
 
+    # --- CAEP (Continuous Access Evaluation Protocol) receiver ---
+    CAEP_ENABLED: bool = False
+    # Audience expected in the SET's aud claim. Defaults to OIDC_CLIENT_ID if not set.
+    CAEP_AUDIENCE: str | None = None
+
+    # --- SCIM 2.0 provisioning ---
+    SCIM_ENABLED: bool = False
+    SCIM_BEARER_TOKEN: str | None = None  # Long-lived shared secret; set in IdP's SCIM connector
+
     @property
     def cors_origins_list(self) -> list[str]:
         """Return CORS_ORIGINS as a list, split on commas."""
