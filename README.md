@@ -14,6 +14,9 @@ A NIST 800-30 aligned cybersecurity risk register. Track risks, score them by li
 - **CSV import / export** — export the full risk register to CSV; download a pre-populated template and bulk-import risks from a spreadsheet
 - **Role-based access** — admin, security analyst, risk owner, and executive viewer roles
 - **SSO / OIDC login** — optional single sign-on via any OIDC-compliant provider (Google, Microsoft Entra, Okta, Auth0, Keycloak); email/password login continues to work alongside it
+- **Session revocation** — logout immediately invalidates both the access token and refresh token server-side; tokens issued before the last logout are rejected on every subsequent request
+- **SCIM 2.0 provisioning** — optional IdP-driven user lifecycle management; Entra or Okta can automatically deactivate Firewatch accounts when users are offboarded, with immediate token invalidation
+- **Continuous Access Evaluation (CAEP)** — optional receiver endpoint for IdP-pushed security events (session revoked, account disabled, credential changed); enables near-real-time access revocation without polling
 - **Database flexibility** — SQLite out of the box, PostgreSQL for production
 
 ## How It Works
@@ -135,6 +138,20 @@ All configuration lives in `firewatch-backend/.env`. The only required value is 
 | `OIDC_DEFAULT_ROLE` | `risk_owner` | Role assigned to new users provisioned via SSO |
 | `OIDC_ROLE_CLAIM` | `groups` | ID token claim that contains the user's groups or roles (e.g. `groups` for Entra/Okta, `roles` for Entra App Roles) |
 | `OIDC_ROLE_MAP` | `{}` | JSON object mapping claim values to Firewatch roles, e.g. `{"sec-team": "security_analyst", "admins": "admin"}`. Unmapped users get `OIDC_DEFAULT_ROLE`. |
+
+**SCIM 2.0 provisioning (optional)** — exposes `/api/scim/v2/*` for IdP-driven user lifecycle management. Configure the Tenant URL and Secret Token in your IdP's SCIM connector.
+
+| Variable | Default | Description |
+|---|---|---|
+| `SCIM_ENABLED` | `False` | Set `True` to expose the SCIM endpoints |
+| `SCIM_BEARER_TOKEN` | — | Long-lived shared secret; must match what the IdP sends in the `Authorization: Bearer` header. Generate with `secrets.token_hex(32)`. |
+
+**CAEP / Continuous Access Evaluation (optional)** — exposes `POST /api/auth/sso/caep` to receive Security Event Tokens (SETs) from a CAEP-compliant IdP (Okta, Entra via the SSF API). Register the receiver URL in your IdP's SSF transmitter settings.
+
+| Variable | Default | Description |
+|---|---|---|
+| `CAEP_ENABLED` | `False` | Set `True` to accept inbound CAEP events |
+| `CAEP_AUDIENCE` | *(OIDC_CLIENT_ID)* | Expected `aud` claim in the SET JWT. Defaults to `OIDC_CLIENT_ID` if unset. |
 
 ## Running Tests
 

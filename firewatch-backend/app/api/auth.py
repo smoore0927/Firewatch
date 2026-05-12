@@ -15,6 +15,7 @@ Cookie security settings explained:
                     silently refresh it without also stealing the refresh cookie.
 """
 
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
@@ -146,6 +147,18 @@ def refresh(
         _record_failure("user_not_found")
         raise invalid
 
+    # Reject refresh tokens issued before the user's last logout
+    if user.last_logout_at is not None:
+        token_iat = payload.get("iat", 0)
+        logout_ts = (
+            user.last_logout_at.replace(tzinfo=timezone.utc).timestamp()
+            if user.last_logout_at.tzinfo is None
+            else user.last_logout_at.timestamp()
+        )
+        if token_iat < logout_ts:
+            _record_failure("token_revoked")
+            raise invalid
+
     # Issue a fresh access token (not a new refresh token — avoids token rotation complexity)
     response.set_cookie(
         key="access_token",
@@ -169,6 +182,8 @@ def logout(
     but the client can no longer send them."""
     response.delete_cookie("access_token")
     response.delete_cookie("refresh_token", path="/api/auth/refresh")
+    current_user.last_logout_at = datetime.now(timezone.utc)
+    db.add(current_user)
     record_event(
         db,
         action="auth.logout",

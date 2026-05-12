@@ -52,6 +52,7 @@ def _create_token(subject: Any, token_type: str, expires_delta: timedelta) -> st
         "sub": str(subject),  # subject — usually the user's numeric ID
         "type": token_type,   # "access" or "refresh" — validated on decode
         "exp": expire,
+        "iat": datetime.now(timezone.utc),
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 

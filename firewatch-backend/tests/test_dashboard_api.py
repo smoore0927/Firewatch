@@ -142,7 +142,9 @@ def test_score_history_returns_average_per_day(client, admin_user, login_as):
     login_as(admin_user)
     _create_risk(client, title="A", likelihood=2, impact=3)  # score 6
     _create_risk(client, title="B", likelihood=4, impact=5)  # score 20
-    today = date.today().isoformat()
+    # Rows are timestamped with func.now() (UTC) — the endpoint groups by UTC
+    # date, so the test must ask for the UTC "today" to match.
+    today = datetime.now(timezone.utc).date().isoformat()
     resp = client.get(
         "/api/dashboard/score-history",
         params={"start": today, "end": today},

@@ -29,6 +29,7 @@ class User(Base):
     external_id = Column(String(255), nullable=True, index=True)
     # is_active disables an account without deleting it -- preserves audit history
     is_active = Column(Boolean, nullable=False, default=True)
+    last_logout_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

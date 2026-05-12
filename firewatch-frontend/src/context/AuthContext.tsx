@@ -16,7 +16,7 @@
  *   without needing to store anything in localStorage.
  */
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { authApi, ApiError } from '@/services/api'
 import type { User } from '@/types'
 
@@ -25,26 +25,36 @@ interface AuthContextValue {
   isLoading: boolean
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
+  loginWithSSO: () => void
+  ssoAvailable: boolean
+  ssoProviderName: string | null
+}
+
+function loginWithSSO(): void {
+  globalThis.location.href = '/api/auth/sso/login'
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({ children }: { readonly children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [ssoAvailable, setSsoAvailable] = useState(false)
+  const [ssoProviderName, setSsoProviderName] = useState<string | null>(null)
 
-  // On mount: check if an existing session is valid
   useEffect(() => {
-    authApi.me()
-      .then((data) => setUser(data as User))
-      .catch((err) => {
-        // 401 is expected when not logged in -- not an error worth logging
+    Promise.all([
+      authApi.me().then((data) => setUser(data as User)).catch((err) => {
         if (!(err instanceof ApiError && err.status === 401)) {
           console.error('Auth check failed:', err)
         }
         setUser(null)
-      })
-      .finally(() => setIsLoading(false))
+      }),
+      authApi.getSsoConfig().then(({ enabled, provider_name }) => {
+        setSsoAvailable(enabled)
+        setSsoProviderName(provider_name)
+      }).catch(() => { /* SSO config unavailable — silently disable */ }),
+    ]).finally(() => setIsLoading(false))
   }, [])
 
   async function login(email: string, password: string): Promise<void> {
@@ -64,8 +74,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }
 
+  const value = useMemo(
+    () => ({ user, isLoading, login, logout, loginWithSSO, ssoAvailable, ssoProviderName }),
+    [user, isLoading, ssoAvailable, ssoProviderName],
+  )
+
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   )

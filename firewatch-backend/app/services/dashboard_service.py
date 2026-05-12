@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time, timezone
 
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
@@ -117,8 +117,8 @@ def build_summary(db: Session) -> DashboardSummaryResponse:
 
 
 def build_score_history(db: Session, start: date, end: date) -> ScoreHistoryResponse:
-    start_dt = datetime(start.year, start.month, start.day)
-    end_dt = datetime(end.year, end.month, end.day, 23, 59, 59)
+    start_dt = datetime.combine(start, time.min, tzinfo=timezone.utc)
+    end_dt = datetime.combine(end, time.max, tzinfo=timezone.utc)
 
     rows = (
         db.query(
@@ -146,8 +146,8 @@ def build_score_history(db: Session, start: date, end: date) -> ScoreHistoryResp
 def build_score_totals_by_severity(
     db: Session, start: date, end: date
 ) -> ScoreTotalsBySeverityResponse:
-    start_dt = datetime(start.year, start.month, start.day)
-    end_dt = datetime(end.year, end.month, end.day, 23, 59, 59)
+    start_dt = datetime.combine(start, time.min, tzinfo=timezone.utc)
+    end_dt = datetime.combine(end, time.max, tzinfo=timezone.utc)
 
     low_sum = func.sum(case((RiskAssessment.risk_score <= 5, RiskAssessment.risk_score), else_=0))
     medium_sum = func.sum(
