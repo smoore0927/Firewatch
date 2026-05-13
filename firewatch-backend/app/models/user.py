@@ -29,6 +29,12 @@ class User(Base):
     external_id = Column(String(255), nullable=True, index=True)
     # is_active disables an account without deleting it -- preserves audit history
     is_active = Column(Boolean, nullable=False, default=True)
+    # Forces a password change on next login. Set to True for users created via
+    # POST /api/users; cleared once they POST /api/auth/change-password successfully.
+    # Default False so seeded admins and SCIM/OIDC users skip the first-login gate.
+    must_change_password = Column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
     last_logout_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

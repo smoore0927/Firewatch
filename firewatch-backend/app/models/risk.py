@@ -3,7 +3,7 @@ Risk register models — four tables that together represent a complete NIST 800
 
 Table relationships:
   Risk (1) ──< RiskAssessment  — scoring history; latest row = current score
-  Risk (1) ──< RiskTreatment   — mitigation plans; many treatments per risk
+  Risk (1) ──< RiskResponse    — response/mitigation plans; many responses per risk
   Risk (1) ──< RiskHistory     — field-level change log for audit trail
 
 Why separate RiskAssessment instead of columns on Risk?
@@ -14,7 +14,7 @@ Why separate RiskAssessment instead of columns on Risk?
 
 Soft delete on Risk:
   Setting deleted_at instead of issuing DELETE preserves all linked assessments,
-  treatments, and history rows. Required for audit trail completeness.
+  responses, and history rows. Required for audit trail completeness.
 """
 
 import enum
@@ -48,7 +48,7 @@ class RiskStatus(str, enum.Enum):
     closed = "closed"
 
 
-class TreatmentType(str, enum.Enum):
+class ResponseType(str, enum.Enum):
     """The four NIST-standard risk response strategies."""
     mitigate = "mitigate"    # reduce likelihood or impact via controls
     accept = "accept"        # acknowledge and accept the risk as-is
@@ -56,7 +56,7 @@ class TreatmentType(str, enum.Enum):
     avoid = "avoid"          # eliminate the activity that causes the risk
 
 
-class TreatmentStatus(str, enum.Enum):
+class ResponseStatus(str, enum.Enum):
     planned = "planned"
     in_progress = "in_progress"
     completed = "completed"
@@ -114,8 +114,8 @@ class Risk(Base):
         order_by="(RiskAssessment.assessed_at.desc(), RiskAssessment.id.desc())",
         cascade="all, delete-orphan",
     )
-    treatments = relationship(
-        "RiskTreatment",
+    responses = relationship(
+        "RiskResponse",
         back_populates="risk",
         cascade="all, delete-orphan",
     )
@@ -162,23 +162,30 @@ class RiskAssessment(Base):
 
 
 # ---------------------------------------------------------------------------
-# RiskTreatment — mitigation / response plan
+# RiskResponse — risk response / mitigation plan
 # ---------------------------------------------------------------------------
 
-class RiskTreatment(Base):
-    __tablename__ = "risk_treatments"
+class RiskResponse(Base):
+    __tablename__ = "risk_responses"
 
     id = Column(Integer, primary_key=True)
     risk_id = Column(Integer, ForeignKey("risks.id"), nullable=False, index=True)
 
-    treatment_type = Column(Enum(TreatmentType), nullable=False)
+    # Enum type names on disk remain `treatmenttype` / `treatmentstatus` for
+    # PostgreSQL backwards compatibility — only the Python class names changed.
+    # On SQLite these are stored as VARCHAR + CHECK so the name is unused.
+    response_type = Column(Enum(ResponseType, name="treatmenttype"), nullable=False)
     mitigation_strategy = Column(Text, nullable=False)
 
     owner_id = Column(Integer, ForeignKey("users.id"))
     start_date = Column(Date)
     target_date = Column(Date)
     completion_date = Column(Date)
-    status = Column(Enum(TreatmentStatus), nullable=False, default=TreatmentStatus.planned)
+    status = Column(
+        Enum(ResponseStatus, name="treatmentstatus"),
+        nullable=False,
+        default=ResponseStatus.planned,
+    )
 
     # Numeric(12, 2) stores dollar amounts without floating-point rounding errors
     cost_estimate = Column(Numeric(12, 2))
@@ -187,7 +194,7 @@ class RiskTreatment(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    risk = relationship("Risk", back_populates="treatments")
+    risk = relationship("Risk", back_populates="responses")
     owner = relationship("User")
 
 

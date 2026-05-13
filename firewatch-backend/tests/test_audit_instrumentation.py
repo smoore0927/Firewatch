@@ -26,7 +26,7 @@ def _latest(db, *, action: str | None = None) -> AuditLog | None:
 def test_login_success_records_audit_row(client, existing_local_user, db):
     resp = client.post(
         "/api/auth/login",
-        json={"email": "local@example.com", "password": "secret123"},
+        json={"email": "local@example.com", "password": "SecretPass123!"},
     )
     assert resp.status_code == 200
 
@@ -83,7 +83,7 @@ def test_create_user_records_audit_row(client, admin_user, login_as, db):
         "/api/users/",
         json={
             "email": "audited.create@example.com",
-            "password": "a-very-long-password",
+            "password": "NewUserPass123!",
             "full_name": "Audited Create",
             "role": "risk_owner",
         },

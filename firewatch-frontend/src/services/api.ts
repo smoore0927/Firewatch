@@ -48,8 +48,11 @@ async function request<T>(
   })
 
   // If 401 and we haven't already tried refreshing, attempt a token refresh
-  // and retry the original request once.
-  if (res.status === 401 && !isRefreshing) {
+  // and retry the original request once. Auth endpoints are excluded — a 401
+  // from /login means wrong credentials (not expired token), and retrying
+  // /refresh itself would cause an infinite loop.
+  const isAuthEndpoint = path.includes('/api/auth/')
+  if (res.status === 401 && !isRefreshing && !isAuthEndpoint) {
     isRefreshing = true
     const refreshed = await refreshToken()
     isRefreshing = false
@@ -67,7 +70,14 @@ async function request<T>(
     let detail = `HTTP ${res.status}`
     try {
       const body = await res.json()
-      detail = body.detail ?? detail
+      if (typeof body.detail === 'string') {
+        detail = body.detail
+      } else if (Array.isArray(body.detail) && body.detail.length > 0) {
+        // Pydantic v2 validation errors: detail is [{msg, loc, type}, ...]
+        detail = body.detail.map((e: { msg: string }) =>
+          e.msg.replace(/^value error,\s*/i, '')
+        ).join('; ')
+      }
     } catch { /* response had no JSON body */ }
     throw new ApiError(res.status, detail)
   }
@@ -84,7 +94,7 @@ async function request<T>(
 
 export const authApi = {
   login: (email: string, password: string) =>
-    request<{ user_id: number; email: string; role: string; full_name: string | null; is_active: boolean; created_at: string }>(
+    request<{ user_id: number; email: string; role: string; full_name: string | null; is_active: boolean; created_at: string; has_password: boolean; must_change_password: boolean }>(
       '/api/auth/login',
       { method: 'POST', body: JSON.stringify({ email, password }) }
     ),
@@ -92,19 +102,25 @@ export const authApi = {
   logout: () => request<void>('/api/auth/logout', { method: 'POST' }),
 
   me: () =>
-    request<{ id: number; email: string; role: string; full_name: string | null; is_active: boolean; created_at: string }>(
+    request<{ id: number; email: string; role: string; full_name: string | null; is_active: boolean; created_at: string; has_password: boolean; must_change_password: boolean }>(
       '/api/auth/me'
     ),
 
   getSsoConfig: () =>
     request<{ enabled: boolean; provider_name: string | null }>('/api/auth/sso/config'),
+
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<void>('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    }),
 }
 
 // -------------------------------------------------------------------------
 // Risks
 // -------------------------------------------------------------------------
 
-import type { AuditLogListResponse, DashboardSummary, ImportResult, Risk, RiskCreate, RiskListResponse, RiskReport, RiskUpdate, ScoreHistoryResponse, ScoreTotalsBySeverityResponse, User } from '@/types'
+import type { ApiKey, ApiKeyCreated, ApiKeyWithOwner, AuditLogListResponse, DashboardSummary, ImportResult, Risk, RiskCreate, RiskListResponse, RiskReport, RiskUpdate, ScoreHistoryResponse, ScoreTotalsBySeverityResponse, User, UserRole } from '@/types'
 
 // Parses a Content-Disposition header value to extract the filename.
 // Handles both `filename="x.csv"` and the RFC 5987 `filename*=UTF-8''x.csv` form.
@@ -140,7 +156,8 @@ async function rawFetchWithRetry(
   retried = false,
 ): Promise<Response> {
   const res = await fetch(`${BASE_URL}${path}`, { ...init, credentials: 'include' })
-  if (res.status === 401 && !retried && !isRefreshing) {
+  const isAuthEndpoint = path.includes('/api/auth/')
+  if (res.status === 401 && !retried && !isRefreshing && !isAuthEndpoint) {
     isRefreshing = true
     const refreshed = await refreshToken()
     isRefreshing = false
@@ -154,7 +171,13 @@ async function throwFromResponse(res: Response): Promise<never> {
   let detail = `HTTP ${res.status}`
   try {
     const body = await res.json()
-    detail = body.detail ?? detail
+    if (typeof body.detail === 'string') {
+      detail = body.detail
+    } else if (Array.isArray(body.detail) && body.detail.length > 0) {
+      detail = body.detail.map((e: { msg: string }) =>
+        e.msg.replace(/^value error,\s*/i, '')
+      ).join('; ')
+    }
   } catch { /* response had no JSON body */ }
   throw new ApiError(res.status, detail)
 }
@@ -236,6 +259,45 @@ export const usersApi = {
   // Returns active users who can be assigned as risk owners (excludes executive_viewers).
   // Requires admin or security_analyst role — will 403 for other roles.
   listAssignable: () => request<User[]>('/api/users/assignable'),
+
+  list: (params?: { includeInactive?: boolean }) => {
+    const query = params?.includeInactive ? '?include_inactive=true' : ''
+    return request<User[]>(`/api/users${query}`)
+  },
+
+  create: (payload: { email: string; password: string; full_name?: string | null; role: UserRole }) =>
+    request<User>('/api/users', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  updateRole: (userId: number, role: UserRole) =>
+    request<User>(`/api/users/${userId}/role`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    }),
+
+  deactivate: (userId: number) =>
+    request<User>(`/api/users/${userId}/deactivate`, { method: 'PATCH' }),
+
+  activate: (userId: number) =>
+    request<User>(`/api/users/${userId}/activate`, { method: 'PATCH' }),
+}
+
+// -------------------------------------------------------------------------
+// API keys
+// -------------------------------------------------------------------------
+
+export const apiKeysApi = {
+  list: () => request<ApiKey[]>('/api/api-keys'),
+  listAll: () => request<ApiKeyWithOwner[]>('/api/api-keys/all'),
+  create: (payload: { name: string; expires_in_days?: number | null }) =>
+    request<ApiKeyCreated>('/api/api-keys', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  revoke: (keyId: number) =>
+    request<void>(`/api/api-keys/${keyId}`, { method: 'DELETE' }),
 }
 
 // -------------------------------------------------------------------------

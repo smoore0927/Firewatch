@@ -13,9 +13,10 @@ How FastAPI dependency injection works:
         ...
 """
 
+import logging
 import secrets
 from typing import Generator
-from datetime import timezone
+from datetime import datetime, timezone
 
 from fastapi import Cookie, Depends, HTTPException, Request, status
 from jwt import PyJWTError as JWTError
@@ -25,6 +26,8 @@ from app.core.config import settings
 from app.core.security import decode_token
 from app.models.database import SessionLocal
 from app.models.user import User, UserRole
+
+logger = logging.getLogger(__name__)
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -39,7 +42,8 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
-def get_current_user(
+def _get_authenticated_user(
+    request: Request,
     access_token: str | None = Cookie(default=None),
     db: Session = Depends(get_db),
 ) -> User:
@@ -47,11 +51,50 @@ def get_current_user(
     Read the access_token HTTP-only cookie, decode the JWT, and return the User.
     Raises 401 if the cookie is missing, the token is expired/invalid, or the
     user no longer exists or is deactivated.
+
+    Also accepts an `Authorization: Bearer fwk_<token>` header for user-scoped
+    API keys minted via /api/api-keys; on a match, returns that key's owner.
+    The fwk_ prefix keeps these cleanly separable from SCIM bearer tokens
+    (which use a different prefix and live behind require_scim_token).
+
+    Private: this is the raw auth check with no first-login gate. Callers should
+    almost always use get_current_user (which adds the PASSWORD_CHANGE_REQUIRED
+    gate) instead. Use get_current_user_allow_password_pending only for the
+    handful of routes the user legitimately needs while their flag is True
+    (/me, /logout, /change-password).
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Not authenticated",
     )
+
+    # --- API key path (Authorization: Bearer fwk_…) ----------------------
+    # Imported lazily so this module doesn't pull api_key_service at import
+    # time (avoids any risk of circular imports during app boot).
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.startswith("Bearer fwk_"):
+        from app.services import api_key_service  # local import
+
+        plaintext = auth_header[len("Bearer "):]
+        key = api_key_service.lookup_by_plaintext(db, plaintext)
+        if key is None:
+            raise credentials_exception
+        owner = key.owner
+        if owner is None or not owner.is_active:
+            raise credentials_exception
+
+        # Best-effort last_used_at update; never break a request because we
+        # couldn't bump this stat.
+        try:
+            key.last_used_at = datetime.now(timezone.utc)
+            db.commit()
+        except Exception:  # pragma: no cover - defensive
+            logger.exception("Failed to update api_key.last_used_at")
+            db.rollback()
+
+        return owner
+
+    # --- Cookie path (default) -------------------------------------------
     if not access_token:
         raise credentials_exception
 
@@ -82,6 +125,33 @@ def get_current_user(
         if token_iat < logout_ts:
             raise credentials_exception
 
+    return user
+
+
+def get_current_user(user: User = Depends(_get_authenticated_user)) -> User:
+    """Authenticated user, gated on the first-login password change.
+
+    Any route that uses this dependency (directly or via require_role) returns
+    403 PASSWORD_CHANGE_REQUIRED while the user's must_change_password flag
+    is set. The frontend should treat this as a signal to redirect into the
+    /change-password flow.
+    """
+    if user.must_change_password:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="PASSWORD_CHANGE_REQUIRED",
+        )
+    return user
+
+
+def get_current_user_allow_password_pending(
+    user: User = Depends(_get_authenticated_user),
+) -> User:
+    """Authenticated user without the first-login gate.
+
+    Use only on /me, /logout, and /change-password — the three routes the user
+    legitimately needs while their must_change_password flag is True.
+    """
     return user
 
 

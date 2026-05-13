@@ -19,10 +19,9 @@ from datetime import date, datetime, timedelta, timezone
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from app.models.risk import Risk, RiskAssessment, RiskHistory, RiskStatus
+from app.models.risk import Risk, RiskAssessment, RiskHistory, RiskResponse, RiskStatus
 from app.models.user import User, UserRole
-from app.schemas.risk import AssessmentCreate, RiskCreate, RiskUpdate, TreatmentCreate
-from app.models.risk import RiskTreatment
+from app.schemas.risk import AssessmentCreate, ResponseCreate, RiskCreate, RiskUpdate
 
 
 def _to_str(value: object) -> str | None:
@@ -137,7 +136,7 @@ class RiskService:
             .options(
                 joinedload(Risk.owner),
                 selectinload(Risk.assessments),
-                selectinload(Risk.treatments),
+                selectinload(Risk.responses),
                 selectinload(Risk.history),
             )
             .offset(skip)
@@ -282,18 +281,18 @@ class RiskService:
         return risk
 
     # -----------------------------------------------------------------------
-    # Treatment
+    # Response (risk response / mitigation plan)
     # -----------------------------------------------------------------------
 
-    def add_treatment(
-        self, risk_id: str, data: TreatmentCreate, created_by: User
+    def add_response(
+        self, risk_id: str, data: ResponseCreate, created_by: User
     ) -> Risk:
         risk = self._get_active_risk(risk_id)
         self._check_edit_permission(risk, created_by)
 
-        self.db.add(RiskTreatment(
+        self.db.add(RiskResponse(
             risk_id=risk.id,
-            treatment_type=data.treatment_type,
+            response_type=data.response_type,
             mitigation_strategy=data.mitigation_strategy,
             owner_id=data.owner_id if data.owner_id else created_by.id,
             start_date=data.start_date,

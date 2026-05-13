@@ -5,7 +5,8 @@ from app.models.user import User          # noqa: F401
 from app.models.risk import (             # noqa: F401
     Risk,
     RiskAssessment,
-    RiskTreatment,
+    RiskResponse,
     RiskHistory,
 )
 from app.models.audit_log import AuditLog  # noqa: F401
+from app.models.api_key import ApiKey  # noqa: F401

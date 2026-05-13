@@ -138,11 +138,11 @@ export default function DashboardPage() {
 
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">Overdue Treatments</CardTitle>
+                <CardTitle className="text-sm font-medium">Overdue Responses</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className={cn('text-3xl font-bold', summary.overdue_treatments > 0 && 'text-red-600')}>
-                  {summary.overdue_treatments}
+                <p className={cn('text-3xl font-bold', summary.overdue_responses > 0 && 'text-red-600')}>
+                  {summary.overdue_responses}
                 </p>
                 <CardDescription>Past target date</CardDescription>
               </CardContent>

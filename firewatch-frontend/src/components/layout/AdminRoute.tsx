@@ -1,20 +1,29 @@
 /**
- * Admin-only route gate.
+ * Role-gated route. Defaults to admin-only.
  *
  * Wraps child routes in <Outlet />. Renders the children only when the
- * authenticated user has role === 'admin'. Non-admins are bounced to
- * /dashboard. While the AuthContext is still resolving the current user,
- * a "Loading..." line is shown -- mirroring ProtectedRoute so the boundary
- * doesn't flash.
+ * authenticated user's role is included in `roles` (which defaults to
+ * ['admin']). Users without a matching role are bounced to /dashboard.
+ * While the AuthContext is still resolving the current user, a "Loading..."
+ * line is shown -- mirroring ProtectedRoute so the boundary doesn't flash.
  *
  * Compose with ProtectedRoute in App.tsx -- ProtectedRoute handles the
- * "is the user authenticated?" check, AdminRoute handles "is the user an
- * admin?". Keeping the two concerns separate means each guard remains small.
+ * "is the user authenticated?" check, this gate handles the role check.
+ * Keeping the two concerns separate means each guard remains small.
+ *
+ * Examples:
+ *   <Route element={<AdminRoute />}>          // admin only
+ *   <Route element={<AdminRoute roles={['admin', 'security_analyst']} />}>
  */
 import { Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
+import type { UserRole } from '@/types'
 
-export default function AdminRoute() {
+interface AdminRouteProps {
+  roles?: UserRole[]
+}
+
+export default function AdminRoute({ roles = ['admin'] }: Readonly<AdminRouteProps>) {
   const { user, isLoading } = useAuth()
 
   if (isLoading) {
@@ -25,7 +34,7 @@ export default function AdminRoute() {
     )
   }
 
-  if (user?.role !== 'admin') {
+  if (!user || !roles.includes(user.role)) {
     return <Navigate to="/dashboard" replace />
   }
 

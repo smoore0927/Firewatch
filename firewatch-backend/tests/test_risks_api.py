@@ -433,51 +433,51 @@ def test_add_assessment_to_missing_risk_returns_404(client, admin_user, login_as
 
 
 # ---------------------------------------------------------------------------
-# POST /api/risks/{id}/treatments
+# POST /api/risks/{id}/responses
 # ---------------------------------------------------------------------------
 
 
-def test_add_treatment_succeeds(client, admin_user, login_as):
+def test_add_response_succeeds(client, admin_user, login_as):
     login_as(admin_user)
     created = _create_risk(client)
     resp = client.post(
-        f"/api/risks/{created['risk_id']}/treatments",
+        f"/api/risks/{created['risk_id']}/responses",
         json={
-            "treatment_type": "mitigate",
+            "response_type": "mitigate",
             "mitigation_strategy": "Roll out MFA org-wide",
             "cost_estimate": "12000.00",
         },
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert len(body["treatments"]) == 1
-    t = body["treatments"][0]
-    assert t["treatment_type"] == "mitigate"
+    assert len(body["responses"]) == 1
+    t = body["responses"][0]
+    assert t["response_type"] == "mitigate"
     assert t["mitigation_strategy"] == "Roll out MFA org-wide"
 
 
-def test_add_treatment_validation_returns_422(client, admin_user, login_as):
+def test_add_response_validation_returns_422(client, admin_user, login_as):
     login_as(admin_user)
     created = _create_risk(client)
     # mitigation_strategy is required & must be non-empty
     resp = client.post(
-        f"/api/risks/{created['risk_id']}/treatments",
-        json={"treatment_type": "mitigate", "mitigation_strategy": ""},
+        f"/api/risks/{created['risk_id']}/responses",
+        json={"response_type": "mitigate", "mitigation_strategy": ""},
     )
     assert resp.status_code == 422
 
 
-def test_add_treatment_invalid_type_returns_422(client, admin_user, login_as):
+def test_add_response_invalid_type_returns_422(client, admin_user, login_as):
     login_as(admin_user)
     created = _create_risk(client)
     resp = client.post(
-        f"/api/risks/{created['risk_id']}/treatments",
-        json={"treatment_type": "ignore", "mitigation_strategy": "x"},
+        f"/api/risks/{created['risk_id']}/responses",
+        json={"response_type": "ignore", "mitigation_strategy": "x"},
     )
     assert resp.status_code == 422
 
 
-def test_add_treatment_as_viewer_returns_403(
+def test_add_response_as_viewer_returns_403(
     client, admin_user, viewer_user, login_as
 ):
     login_as(admin_user)
@@ -486,8 +486,8 @@ def test_add_treatment_as_viewer_returns_403(
     client.cookies.clear()
     login_as(viewer_user)
     resp = client.post(
-        f"/api/risks/{created['risk_id']}/treatments",
-        json={"treatment_type": "accept", "mitigation_strategy": "Live with it"},
+        f"/api/risks/{created['risk_id']}/responses",
+        json={"response_type": "accept", "mitigation_strategy": "Live with it"},
     )
     assert resp.status_code == 403
 

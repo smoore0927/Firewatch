@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_db, require_role
 from app.core.security import hash_password
 from app.models.user import User, UserRole
-from app.schemas.user import UserCreate, UserResponse
+from app.schemas.user import RoleUpdateRequest, UserCreate, UserResponse
 from app.services.audit_service import record_event
 
 router = APIRouter(prefix="/users", tags=["Users"])
@@ -45,7 +45,7 @@ def list_assignable_users(
     )
 
 
-@router.get("/", response_model=list[UserResponse])
+@router.get("", response_model=list[UserResponse])
 def list_users(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[User, Depends(require_role(UserRole.admin))],
@@ -58,7 +58,7 @@ def list_users(
     return query.all()
 
 
-@router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user(
     request: Request,
     user_data: UserCreate,
@@ -81,6 +81,9 @@ def create_user(
         hashed_password=hash_password(user_data.password),
         full_name=user_data.full_name,
         role=user_data.role,
+        # Force new admin-provisioned users through /change-password on first login.
+        # SCIM/OIDC users don't hit this route and stay at the default False.
+        must_change_password=True,
     )
     db.add(user)
     db.commit()
@@ -129,6 +132,70 @@ def deactivate_user(
         resource_id=str(user.id),
         request=request,
         details={"deactivated_email": user.email},
+    )
+    db.commit()
+    return user
+
+
+@router.patch("/{user_id}/role", response_model=UserResponse)
+def change_user_role(
+    request: Request,
+    user_id: int,
+    body: RoleUpdateRequest,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(require_role(UserRole.admin))],
+) -> User:
+    """Change a local user's role. Admin only."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if user.hashed_password is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Cannot change role for SSO-provisioned accounts. "
+                "Their role is set by the identity provider's group claims on every sign-in."
+            ),
+        )
+
+    if user_id == current_admin.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot change your own role",
+        )
+
+    if body.role != UserRole.admin and user.role == UserRole.admin:
+        remaining_admins = (
+            db.query(User)
+            .filter(
+                User.role == UserRole.admin,
+                User.is_active.is_(True),
+                User.id != user.id,
+            )
+            .count()
+        )
+        if remaining_admins == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot demote the last active admin",
+            )
+
+    if body.role == user.role:
+        return user
+
+    old_role = user.role.value
+    user.role = body.role
+    db.commit()
+    db.refresh(user)
+    record_event(
+        db,
+        action="user.role.changed",
+        user=current_admin,
+        resource_type="user",
+        resource_id=str(user.id),
+        request=request,
+        details={"target_email": user.email, "from": old_role, "to": user.role.value},
     )
     db.commit()
     return user

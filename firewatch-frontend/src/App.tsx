@@ -19,12 +19,16 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import ProtectedRoute from '@/components/layout/ProtectedRoute'
 import AdminRoute from '@/components/layout/AdminRoute'
 import AppLayout from '@/components/layout/AppLayout'
+import SettingsLayout from '@/components/layout/SettingsLayout'
 import LoginPage from '@/pages/LoginPage'
 import DashboardPage from '@/pages/DashboardPage'
 import RisksPage from '@/pages/RisksPage'
 import RiskDetailPage from '@/pages/RiskDetailPage'
 import RiskFormPage from '@/pages/RiskFormPage'
-import SettingsPage from '@/pages/SettingsPage'
+import SettingsPasswordPage from '@/pages/SettingsPasswordPage'
+import SettingsUsersPage from '@/pages/SettingsUsersPage'
+import SettingsApiKeysPage from '@/pages/SettingsApiKeysPage'
+import AuditLogPage from '@/pages/AuditLogPage'
 
 export default function App() {
   return (
@@ -44,9 +48,19 @@ export default function App() {
           <Route path="/risks/:riskId" element={<RiskDetailPage />} />
           <Route path="/risks/:riskId/edit" element={<RiskFormPage mode="edit" />} />
 
-          {/* Admin-only settings — AdminRoute redirects non-admins to /dashboard. */}
-          <Route element={<AdminRoute />}>
-            <Route path="/settings" element={<SettingsPage />} />
+          {/* /account kept as a redirect for backward compatibility */}
+          <Route path="/account" element={<Navigate to="/settings/password" replace />} />
+
+          <Route path="/settings" element={<SettingsLayout />}>
+            <Route index element={<Navigate to="password" replace />} />
+            <Route path="password" element={<SettingsPasswordPage />} />
+            <Route element={<AdminRoute />}>
+              <Route path="users" element={<SettingsUsersPage />} />
+              <Route path="audit-log" element={<AuditLogPage />} />
+            </Route>
+            <Route element={<AdminRoute roles={['admin', 'security_analyst']} />}>
+              <Route path="api-keys" element={<SettingsApiKeysPage />} />
+            </Route>
           </Route>
         </Route>
       </Route>

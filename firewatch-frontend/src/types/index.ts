@@ -20,6 +20,10 @@ export interface LoginResponse {
   email: string
   role: UserRole
   full_name: string | null
+  has_password: boolean
+  must_change_password: boolean
+  is_active: boolean
+  created_at: string
 }
 
 // -------------------------------------------------------------------------
@@ -39,6 +43,8 @@ export interface User {
   role: UserRole
   is_active: boolean
   created_at: string
+  has_password: boolean
+  must_change_password: boolean
 }
 
 // -------------------------------------------------------------------------
@@ -52,8 +58,8 @@ export type RiskStatus =
   | 'accepted'
   | 'closed'
 
-export type TreatmentType = 'mitigate' | 'accept' | 'transfer' | 'avoid'
-export type TreatmentStatus = 'planned' | 'in_progress' | 'completed' | 'deferred'
+export type ResponseType = 'mitigate' | 'accept' | 'transfer' | 'avoid'
+export type ResponseStatus = 'planned' | 'in_progress' | 'completed' | 'deferred'
 
 export interface RiskAssessment {
   id: number
@@ -67,15 +73,15 @@ export interface RiskAssessment {
   assessed_at: string
 }
 
-export interface RiskTreatment {
+export interface RiskResponse {
   id: number
-  treatment_type: TreatmentType
+  response_type: ResponseType
   mitigation_strategy: string
   owner_id: number | null
   start_date: string | null
   target_date: string | null
   completion_date: string | null
-  status: TreatmentStatus
+  status: ResponseStatus
   cost_estimate: number | null
   notes: string | null
   created_at: string
@@ -115,7 +121,7 @@ export interface Risk {
   created_at: string
   updated_at: string | null
   assessments: RiskAssessment[]
-  treatments: RiskTreatment[]
+  responses: RiskResponse[]
   history: RiskHistory[]
 }
 
@@ -161,7 +167,7 @@ export interface DashboardSummary {
   total: number
   by_status: Record<string, number>
   by_severity: Record<string, number>
-  overdue_treatments: number
+  overdue_responses: number
   overdue_reviews: number
   risk_matrix: number[][]   // [likelihood-1][impact-1] → count
 }
@@ -248,6 +254,34 @@ export interface AuditLog {
 export interface AuditLogListResponse {
   total: number
   items: AuditLog[]
+}
+
+// -------------------------------------------------------------------------
+// API keys
+// -------------------------------------------------------------------------
+
+export interface ApiKey {
+  id: number
+  name: string
+  prefix: string
+  created_at: string
+  last_used_at: string | null
+  expires_at: string | null
+  revoked_at: string | null
+}
+
+export interface ApiKeyCreated extends ApiKey {
+  key: string
+}
+
+export interface ApiKeyOwnerSummary {
+  id: number
+  email: string
+  full_name: string | null
+}
+
+export interface ApiKeyWithOwner extends ApiKey {
+  owner: ApiKeyOwnerSummary
 }
 
 // -------------------------------------------------------------------------

@@ -2,7 +2,9 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+from app.schemas._password_policy import validate_password_complexity
 
 
 class LoginRequest(BaseModel):
@@ -21,3 +23,15 @@ class LoginResponse(BaseModel):
     full_name: str | None
     is_active: bool
     created_at: datetime
+    has_password: bool
+    must_change_password: bool
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def _check_new_password(cls, value: str) -> str:
+        return validate_password_complexity(value)

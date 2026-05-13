@@ -113,7 +113,7 @@ export async function generateRiskReportPdf(
     ['Mitigated', String(s.by_status['mitigated'] ?? 0)],
     ['Accepted', String(s.by_status['accepted'] ?? 0)],
     ['Closed', String(s.by_status['closed'] ?? 0)],
-    ['Overdue Treatments', String(s.overdue_treatments)],
+    ['Overdue Responses', String(s.overdue_responses)],
     ['Overdue Reviews', String(s.overdue_reviews)],
   ]
 

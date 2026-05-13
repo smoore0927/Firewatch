@@ -185,11 +185,12 @@ def existing_local_user(db) -> User:
     user = User(
         email="local@example.com",
         full_name="Local User",
-        hashed_password=hash_password("secret123"),
+        hashed_password=hash_password("SecretPass123!"),
         role=UserRole.risk_owner,
         auth_provider="local",
         external_id=None,
         is_active=True,
+        must_change_password=False,
     )
     db.add(user)
     db.commit()
@@ -217,7 +218,7 @@ def disabled_sso_user(db) -> User:
 # --- Role-based user factories + login helper -----------------------------------
 
 
-def _make_user(db, *, email: str, role: UserRole, password: str = "secret123") -> User:
+def _make_user(db, *, email: str, role: UserRole, password: str = "SecretPass123!") -> User:
     user = User(
         email=email,
         full_name=f"{role.value} user",
@@ -225,6 +226,7 @@ def _make_user(db, *, email: str, role: UserRole, password: str = "secret123") -
         role=role,
         auth_provider="local",
         is_active=True,
+        must_change_password=False,
     )
     db.add(user)
     db.commit()
@@ -261,7 +263,7 @@ def viewer_user(db) -> User:
 def login_as(client):
     """Return a callable that logs the given user in via /api/auth/login."""
 
-    def _login(user: User, password: str = "secret123") -> None:
+    def _login(user: User, password: str = "SecretPass123!") -> None:
         resp = client.post(
             "/api/auth/login", json={"email": user.email, "password": password}
         )
