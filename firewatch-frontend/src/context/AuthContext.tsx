@@ -28,6 +28,7 @@ interface AuthContextValue {
   loginWithSSO: () => void
   ssoAvailable: boolean
   ssoProviderName: string | null
+  refreshUser: () => Promise<void>
 }
 
 function loginWithSSO(): void {
@@ -66,6 +67,8 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
       role: data.role as User['role'],
       is_active: data.is_active,
       created_at: data.created_at,
+      has_password: data.has_password,
+      must_change_password: data.must_change_password,
     })
   }
 
@@ -74,8 +77,17 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
     setUser(null)
   }
 
+  async function refreshUser(): Promise<void> {
+    await authApi.me().then((data) => setUser(data as User)).catch((err) => {
+      if (!(err instanceof ApiError && err.status === 401)) {
+        console.error('Auth refresh failed:', err)
+      }
+      setUser(null)
+    })
+  }
+
   const value = useMemo(
-    () => ({ user, isLoading, login, logout, loginWithSSO, ssoAvailable, ssoProviderName }),
+    () => ({ user, isLoading, login, logout, loginWithSSO, ssoAvailable, ssoProviderName, refreshUser }),
     [user, isLoading, ssoAvailable, ssoProviderName],
   )
 

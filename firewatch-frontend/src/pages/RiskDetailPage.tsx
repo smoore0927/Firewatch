@@ -7,7 +7,7 @@
  *   3. Details      — category, asset, threat source/event, vulnerability, description
  *   4. Activity     — merged timeline: score changes + status changes (grouped by commit)
  *   5. Edit History — every commit with full field-level before/after, collapsible
- *   6. Treatments   — mitigation plans
+ *   6. Responses    — mitigation plans
  */
 import { useEffect, useState, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -751,25 +751,25 @@ export default function RiskDetailPage() {
         </div>
       )}
 
-      {/* ---- Treatments ---- */}
-      {risk.treatments.length > 0 && (
+      {/* ---- Responses ---- */}
+      {risk.responses.length > 0 && (
         <div className="rounded-lg border overflow-hidden">
           <div className="px-5 py-4 border-b">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Treatment Plans
+              Response Plans
             </h2>
           </div>
           <ul className="divide-y divide-border">
-            {risk.treatments.map((t) => (
-              <li key={t.id} className="px-5 py-4 text-sm">
+            {risk.responses.map((r) => (
+              <li key={r.id} className="px-5 py-4 text-sm">
                 <div className="flex items-center gap-2 mb-1">
-                  <Badge variant="outline" className="capitalize">{t.treatment_type}</Badge>
-                  <Badge variant={t.status as any} className="capitalize">{t.status.replace('_', ' ')}</Badge>
+                  <Badge variant="outline" className="capitalize">{r.response_type}</Badge>
+                  <Badge variant={r.status as any} className="capitalize">{r.status.replace('_', ' ')}</Badge>
                 </div>
-                <p>{t.mitigation_strategy}</p>
-                {t.target_date && (
+                <p>{r.mitigation_strategy}</p>
+                {r.target_date && (
                   <p className="text-xs text-muted-foreground mt-1">
-                    Target: {new Date(t.target_date).toLocaleDateString()}
+                    Target: {new Date(r.target_date).toLocaleDateString()}
                   </p>
                 )}
               </li>

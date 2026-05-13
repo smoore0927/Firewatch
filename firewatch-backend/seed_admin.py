@@ -36,6 +36,9 @@ def main() -> None:
             print(f"A user with email '{email}' already exists.")
             sys.exit(1)
 
+        # must_change_password is intentionally left at its column default of False:
+        # the seeded admin sets their own password here, so they shouldn't be forced
+        # through the first-login change flow that POST /api/users-provisioned users hit.
         admin = User(
             email=email,
             hashed_password=hash_password(password),

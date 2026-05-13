@@ -29,7 +29,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
 from app.core.limiter import limiter
-from app.api import audit, auth, caep, dashboard, reports, risks, scim, sso, users
+from app.api import api_keys, audit, auth, caep, dashboard, reports, risks, scim, sso, users
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +93,7 @@ app.include_router(risks.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(audit.router, prefix="/api")
 app.include_router(reports.router, prefix="/api")
+app.include_router(api_keys.router, prefix="/api")
 
 
 

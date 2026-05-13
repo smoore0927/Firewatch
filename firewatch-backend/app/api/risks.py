@@ -11,7 +11,7 @@ RBAC summary:
   POST /risks                     — admin, security_analyst, risk_owner
   PUT  /risks/:id                 — any authenticated user (service checks ownership)
   POST /risks/:id/assessments     — any authenticated user (service checks ownership)
-  POST /risks/:id/treatments      — any authenticated user (service checks ownership)
+  POST /risks/:id/responses       — any authenticated user (service checks ownership)
   DELETE /risks/:id               — admin only
   GET  /risks/export              — any authenticated user (CSV download)
   GET  /risks/import-template     — any authenticated user (CSV download)
@@ -31,11 +31,11 @@ from app.schemas.risk import (
     AssessmentCreate,
     ImportResult,
     ImportResultRow,
+    ResponseCreate,
     RiskCreate,
     RiskListResponse,
     RiskResponse,
     RiskUpdate,
-    TreatmentCreate,
 )
 from app.services.audit_service import record_event
 from app.services.csv_service import (
@@ -272,26 +272,26 @@ def add_assessment(
     return risk
 
 
-@router.post("/{risk_id}/treatments")
-def add_treatment(
+@router.post("/{risk_id}/responses")
+def add_response(
     request: Request,
     risk_id: str,
-    data: TreatmentCreate,
+    data: ResponseCreate,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> RiskResponse:
-    """Add a mitigation/treatment plan to a risk."""
-    risk = RiskService(db).add_treatment(
+    """Add a response/mitigation plan to a risk."""
+    risk = RiskService(db).add_response(
         risk_id=risk_id, data=data, created_by=current_user
     )
     record_event(
         db,
-        action="risk.treatment.added",
+        action="risk.response.added",
         user=current_user,
         resource_type="risk",
         resource_id=risk.risk_id,
         request=request,
-        details={"treatment_type": data.treatment_type.value},
+        details={"response_type": data.response_type.value},
     )
     db.commit()
     return risk

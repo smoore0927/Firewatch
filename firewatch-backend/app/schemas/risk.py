@@ -18,7 +18,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from app.models.risk import RiskStatus, TreatmentStatus, TreatmentType
+from app.models.risk import ResponseStatus, ResponseType, RiskStatus
 
 
 # ---------------------------------------------------------------------------
@@ -48,11 +48,17 @@ class AssessmentResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Treatment schemas
+# Response schemas (risk response / mitigation plan)
+#
+# Naming note: the request/output schemas are named ResponseCreate / ResponseOut
+# instead of RiskResponseCreate / RiskResponseResponse to avoid a name collision
+# with the existing `RiskResponse` Pydantic class below, which serialises the
+# full Risk entity. Pluralising the "Response" suffix on a model literally named
+# "Response" is the awkward edge case of this rename.
 # ---------------------------------------------------------------------------
 
-class TreatmentCreate(BaseModel):
-    treatment_type: TreatmentType
+class ResponseCreate(BaseModel):
+    response_type: ResponseType
     mitigation_strategy: str = Field(..., min_length=1)
     owner_id: Optional[int] = None
     start_date: Optional[datetime] = None
@@ -61,15 +67,15 @@ class TreatmentCreate(BaseModel):
     notes: Optional[str] = None
 
 
-class TreatmentResponse(BaseModel):
+class ResponseOut(BaseModel):
     id: int
-    treatment_type: TreatmentType
+    response_type: ResponseType
     mitigation_strategy: str
     owner_id: Optional[int]
     start_date: Optional[datetime]
     target_date: Optional[datetime]
     completion_date: Optional[datetime]
-    status: TreatmentStatus
+    status: ResponseStatus
     cost_estimate: Optional[Decimal]
     notes: Optional[str]
     created_at: datetime
@@ -160,7 +166,7 @@ class RiskResponse(BaseModel):
     updated_at: Optional[datetime]
     # Full assessment history — frontend uses [0] for the current score
     assessments: list[AssessmentResponse] = []
-    treatments: list[TreatmentResponse] = []
+    responses: list[ResponseOut] = []
     # Field-level change log — every status change, re-score, etc.
     history: list[HistoryResponse] = []
 

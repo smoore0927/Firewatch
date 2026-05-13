@@ -23,16 +23,21 @@ from jwt import PyJWTError as JWTError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.dependencies import get_current_user, get_db
+from app.core.dependencies import (
+    get_current_user,
+    get_current_user_allow_password_pending,
+    get_db,
+)
 from app.core.limiter import limiter
 from app.core.security import (
     create_access_token,
     decode_token,
+    hash_password,
     set_auth_cookies,
     verify_password,
 )
 from app.models.user import User
-from app.schemas.auth import LoginRequest, LoginResponse
+from app.schemas.auth import ChangePasswordRequest, LoginRequest, LoginResponse
 from app.schemas.user import UserResponse
 from app.services.audit_service import record_event
 
@@ -98,6 +103,8 @@ def login(
         full_name=user.full_name,
         is_active=user.is_active,
         created_at=user.created_at,
+        has_password=user.hashed_password is not None,
+        must_change_password=user.must_change_password,
     )
 
 
@@ -175,7 +182,7 @@ def refresh(
 def logout(
     request: Request,
     response: Response,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(get_current_user_allow_password_pending)],
     db: Annotated[Session, Depends(get_db)],
 ) -> None:
     """Clear both auth cookies. The tokens remain valid until expiry server-side,
@@ -195,6 +202,44 @@ def logout(
 
 
 @router.get("/me", response_model=UserResponse)
-def get_me(current_user: Annotated[User, Depends(get_current_user)]) -> User:
+def get_me(
+    current_user: Annotated[User, Depends(get_current_user_allow_password_pending)],
+) -> User:
     """Return the currently authenticated user's profile."""
     return current_user
+
+
+@router.post("/change-password")
+@limiter.limit("5/minute")
+def change_password(
+    request: Request,
+    response: Response,
+    body: ChangePasswordRequest,
+    current_user: Annotated[User, Depends(get_current_user_allow_password_pending)],
+    db: Annotated[Session, Depends(get_db)],
+) -> dict:
+    """Let an authenticated local user change their own password."""
+    if current_user.hashed_password is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password cannot be changed for SSO-provisioned accounts.",
+        )
+    if not verify_password(body.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect.",
+        )
+    current_user.hashed_password = hash_password(body.new_password)
+    current_user.must_change_password = False
+    current_user.last_logout_at = datetime.now(timezone.utc)
+    set_auth_cookies(response, current_user.id)
+    db.add(current_user)
+    record_event(
+        db,
+        action="auth.password.changed",
+        user=current_user,
+        resource_type="auth",
+        request=request,
+    )
+    db.commit()
+    return {"message": "Password updated"}

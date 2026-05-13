@@ -36,7 +36,7 @@ const STUB_REPORT: RiskReport = {
     total: 0,
     by_status: {},
     by_severity: {},
-    overdue_treatments: 0,
+    overdue_responses: 0,
     overdue_reviews: 0,
     risk_matrix: [],
   },

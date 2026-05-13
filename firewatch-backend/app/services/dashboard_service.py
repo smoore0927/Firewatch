@@ -7,7 +7,7 @@ from datetime import date, datetime, time, timezone
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
-from app.models.risk import Risk, RiskAssessment, RiskStatus, RiskTreatment, TreatmentStatus
+from app.models.risk import Risk, RiskAssessment, RiskResponse, RiskStatus, ResponseStatus
 from app.schemas.dashboard import (
     DashboardSummaryResponse,
     ScoreHistoryPoint,
@@ -89,11 +89,11 @@ def build_summary(db: Session) -> DashboardSummaryResponse:
         .scalar()
     )
 
-    overdue_treatments = (
-        db.query(func.count(RiskTreatment.id))
-        .filter(RiskTreatment.target_date.isnot(None))
-        .filter(RiskTreatment.target_date < date.today())
-        .filter(RiskTreatment.status != TreatmentStatus.completed)
+    overdue_responses = (
+        db.query(func.count(RiskResponse.id))
+        .filter(RiskResponse.target_date.isnot(None))
+        .filter(RiskResponse.target_date < date.today())
+        .filter(RiskResponse.status != ResponseStatus.completed)
         .scalar()
     )
 
@@ -110,7 +110,7 @@ def build_summary(db: Session) -> DashboardSummaryResponse:
         total=total,
         by_status=by_status,
         by_severity=by_severity,
-        overdue_treatments=overdue_treatments,
+        overdue_responses=overdue_responses,
         overdue_reviews=overdue_reviews,
         risk_matrix=risk_matrix,
     )

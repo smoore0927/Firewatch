@@ -77,7 +77,7 @@ def test_summary_empty_state(client, admin_user, login_as):
         "Low": 0,
         "Unscored": 0,
     }
-    assert body["overdue_treatments"] == 0
+    assert body["overdue_responses"] == 0
     assert body["overdue_reviews"] == 0
     assert body["risk_matrix"] == [[0] * 5 for _ in range(5)]
 

@@ -45,7 +45,7 @@ describe('reportsApi', () => {
       generated_at: '2026-05-08T12:00:00Z',
       generated_by: { id: 1, email: 'a@b.com', full_name: null, role: 'admin' },
       date_range: { start: '2026-01-01', end: '2026-02-01' },
-      summary: { total: 0, by_status: {}, by_severity: {}, overdue_treatments: 0, overdue_reviews: 0, risk_matrix: [] },
+      summary: { total: 0, by_status: {}, by_severity: {}, overdue_responses: 0, overdue_reviews: 0, risk_matrix: [] },
       score_history: { points: [] },
       risks: null,
     }
