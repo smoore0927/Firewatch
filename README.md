@@ -182,7 +182,7 @@ python -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env            # then edit .env
-alembic upgrade head            # skip for SQLite — tables are created automatically
+alembic upgrade head            # required for PostgreSQL; SQLite migrates automatically on startup
 uvicorn main:app --reload
 ```
 
