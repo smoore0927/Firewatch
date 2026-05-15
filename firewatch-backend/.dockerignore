@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Secrets & local state — never bake into the image
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite
+*.sqlite3
+
+# Tests & tooling we don't need at runtime
+tests/
+.git/
+.gitignore
+.dockerignore
+Dockerfile
+
+# IDE/OS junk
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
