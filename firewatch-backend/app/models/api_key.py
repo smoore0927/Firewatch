@@ -1,6 +1,6 @@
 """ApiKey ORM model — user-scoped bearer credentials for API access."""
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -22,7 +22,7 @@ class ApiKey(Base):
     prefix = Column(String(16), nullable=False, index=True)
     # sha256 hex digest of the full plaintext (including the fwk_ prefix).
     hashed_key = Column(String(128), nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'), nullable=False)
     last_used_at = Column(DateTime(timezone=True), nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=True)
     revoked_at = Column(DateTime(timezone=True), nullable=True)

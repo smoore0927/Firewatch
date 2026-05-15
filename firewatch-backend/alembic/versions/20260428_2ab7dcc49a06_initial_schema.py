@@ -27,7 +27,7 @@ def upgrade() -> None:
     sa.Column('full_name', sa.String(length=255), nullable=True),
     sa.Column('role', sa.Enum('admin', 'security_analyst', 'risk_owner', 'executive_viewer', name='userrole'), nullable=False),
     sa.Column('is_active', sa.Boolean(), nullable=False),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
@@ -45,7 +45,7 @@ def upgrade() -> None:
     sa.Column('status', sa.Enum('open', 'in_progress', 'mitigated', 'accepted', 'closed', name='riskstatus'), nullable=False),
     sa.Column('owner_id', sa.Integer(), nullable=False),
     sa.Column('created_by_id', sa.Integer(), nullable=False),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
     sa.ForeignKeyConstraint(['created_by_id'], ['users.id'], ),
@@ -66,7 +66,7 @@ def upgrade() -> None:
     sa.Column('residual_risk_score', sa.Integer(), nullable=True),
     sa.Column('notes', sa.Text(), nullable=True),
     sa.Column('assessed_by_id', sa.Integer(), nullable=False),
-    sa.Column('assessed_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('assessed_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
     sa.ForeignKeyConstraint(['assessed_by_id'], ['users.id'], ),
     sa.ForeignKeyConstraint(['risk_id'], ['risks.id'], ),
     sa.PrimaryKeyConstraint('id')
@@ -79,7 +79,7 @@ def upgrade() -> None:
     sa.Column('old_value', sa.Text(), nullable=True),
     sa.Column('new_value', sa.Text(), nullable=True),
     sa.Column('changed_by_id', sa.Integer(), nullable=False),
-    sa.Column('changed_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('changed_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
     sa.ForeignKeyConstraint(['changed_by_id'], ['users.id'], ),
     sa.ForeignKeyConstraint(['risk_id'], ['risks.id'], ),
     sa.PrimaryKeyConstraint('id')
@@ -97,7 +97,7 @@ def upgrade() -> None:
     sa.Column('status', sa.Enum('planned', 'in_progress', 'completed', 'deferred', name='treatmentstatus'), nullable=False),
     sa.Column('cost_estimate', sa.Numeric(precision=12, scale=2), nullable=True),
     sa.Column('notes', sa.Text(), nullable=True),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
     sa.ForeignKeyConstraint(['owner_id'], ['users.id'], ),
     sa.ForeignKeyConstraint(['risk_id'], ['risks.id'], ),

@@ -29,6 +29,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    text,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -96,7 +97,7 @@ class Risk(Base):
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'), nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     # NULL = active record; non-NULL = soft-deleted
     deleted_at = Column(DateTime(timezone=True))
@@ -155,7 +156,7 @@ class RiskAssessment(Base):
 
     notes = Column(Text)
     assessed_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    assessed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    assessed_at = Column(DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'), nullable=False)
 
     risk = relationship("Risk", back_populates="assessments")
     assessed_by = relationship("User")
@@ -191,7 +192,7 @@ class RiskResponse(Base):
     cost_estimate = Column(Numeric(12, 2))
     notes = Column(Text)
 
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'), nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     risk = relationship("Risk", back_populates="responses")
@@ -218,7 +219,7 @@ class RiskHistory(Base):
     new_value = Column(Text)   # NULL = field was cleared
 
     changed_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    changed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    changed_at = Column(DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'), nullable=False)
 
     risk = relationship("Risk", back_populates="history")
     changed_by = relationship("User")
