@@ -24,18 +24,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { CATEGORIES } from '@/lib/constants'
 import { ArrowLeft } from 'lucide-react'
 
 // ---- Constants --------------------------------------------------------------
-
-const CATEGORIES = [
-  'Technical',
-  'Compliance',
-  'Operational',
-  'Strategic',
-  'Financial',
-  'Reputational',
-]
 
 const STATUS_OPTIONS: { value: RiskStatus; label: string }[] = [
   { value: 'open',        label: 'Open' },
