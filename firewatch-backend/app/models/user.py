@@ -1,6 +1,6 @@
 """User ORM model."""
 
-from sqlalchemy import Boolean, Column, DateTime, Enum, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, Enum, Integer, String, text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -36,7 +36,7 @@ class User(Base):
         Boolean, nullable=False, default=False, server_default="0"
     )
     last_logout_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'), nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # foreign_keys is required because Risk has two FKs pointing at users

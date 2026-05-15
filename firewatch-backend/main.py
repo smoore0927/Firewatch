@@ -19,7 +19,10 @@ Security notes:
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
+from alembic import command
+from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
@@ -36,9 +39,12 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Run alembic upgrade head on SQLite so dev databases stay in sync with the
+    # migration chain. Postgres deployments should run alembic upgrade head as a
+    # separate step (multi-instance race conditions make app-startup migration risky).
     if settings.DATABASE_URL.startswith("sqlite"):
-        from app.models.database import Base, engine
-        Base.metadata.create_all(bind=engine)
+        alembic_cfg = Config(str(Path(__file__).parent / "alembic.ini"))
+        command.upgrade(alembic_cfg, "head")
     yield
 
 
