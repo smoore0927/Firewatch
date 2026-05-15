@@ -199,6 +199,48 @@ export interface ScoreTotalsBySeverityResponse {
 }
 
 // -------------------------------------------------------------------------
+// Analytics
+// -------------------------------------------------------------------------
+
+export interface VelocityMTTMBySeverity {
+  critical: number | null
+  high: number | null
+  medium: number | null
+  low: number | null
+}
+
+export interface VelocityMTTMResponse {
+  mean_days: number | null
+  median_days: number | null
+  count: number
+  by_severity: VelocityMTTMBySeverity
+}
+
+export interface VelocityThroughputPoint {
+  period: string   // "YYYY-MM"
+  opened: number
+  closed: number
+}
+
+export interface VelocityThroughputResponse {
+  points: VelocityThroughputPoint[]
+}
+
+export interface ResidualReductionBySeverity {
+  critical: number | null
+  high: number | null
+  medium: number | null
+  low: number | null
+}
+
+export interface ResidualReductionResponse {
+  avg_absolute: number | null
+  avg_percentage: number | null
+  count: number
+  by_severity: ResidualReductionBySeverity
+}
+
+// -------------------------------------------------------------------------
 // Reports
 // -------------------------------------------------------------------------
 

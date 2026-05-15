@@ -19,6 +19,7 @@ import { useAuth } from '@/context/AuthContext'
 import {
   ShieldAlert,
   LayoutDashboard,
+  Activity,
   ShieldCheck,
   LogOut,
   Settings,
@@ -125,6 +126,15 @@ export default function AppLayout() {
             >
               <LayoutDashboard className="h-4 w-4 shrink-0" />
               {!isNarrow && <span>Dashboard</span>}
+            </NavLink>
+
+            <NavLink
+              to="/analytics"
+              title={isNarrow ? 'Risk Velocity' : undefined}
+              className={({ isActive }) => navLinkClass(isActive)}
+            >
+              <Activity className="h-4 w-4 shrink-0" />
+              {!isNarrow && <span>Risk Velocity</span>}
             </NavLink>
 
             <NavLink

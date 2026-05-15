@@ -120,7 +120,7 @@ export const authApi = {
 // Risks
 // -------------------------------------------------------------------------
 
-import type { ApiKey, ApiKeyCreated, ApiKeyWithOwner, AuditLogListResponse, DashboardSummary, ImportResult, Risk, RiskCreate, RiskListResponse, RiskReport, RiskUpdate, ScoreHistoryResponse, ScoreTotalsBySeverityResponse, User, UserRole } from '@/types'
+import type { ApiKey, ApiKeyCreated, ApiKeyWithOwner, AuditLogListResponse, DashboardSummary, ImportResult, ResidualReductionResponse, Risk, RiskCreate, RiskListResponse, RiskReport, RiskUpdate, ScoreHistoryResponse, ScoreTotalsBySeverityResponse, Severity, User, UserRole, VelocityMTTMResponse, VelocityThroughputResponse } from '@/types'
 
 // Parses a Content-Disposition header value to extract the filename.
 // Handles both `filename="x.csv"` and the RFC 5987 `filename*=UTF-8''x.csv` form.
@@ -314,6 +314,52 @@ export const dashboardApi = {
     request<ScoreTotalsBySeverityResponse>(
       `/api/dashboard/score-totals-by-severity?start=${start}&end=${end}`,
     ),
+}
+
+// -------------------------------------------------------------------------
+// Analytics
+// -------------------------------------------------------------------------
+
+export const analyticsApi = {
+  getMeanTimeToMitigation: (
+    start: string,
+    end: string,
+    opts?: { severity?: Severity; category?: string },
+  ) => {
+    const qs = new URLSearchParams()
+    qs.set('start', start)
+    qs.set('end', end)
+    if (opts?.severity) qs.set('severity', opts.severity)
+    if (opts?.category) qs.set('category', opts.category)
+    return request<VelocityMTTMResponse>(
+      `/api/analytics/velocity/mean-time-to-mitigation?${qs.toString()}`,
+    )
+  },
+
+  getThroughput: (
+    start: string,
+    end: string,
+    opts?: { severity?: Severity; category?: string },
+  ) => {
+    const qs = new URLSearchParams()
+    qs.set('start', start)
+    qs.set('end', end)
+    if (opts?.severity) qs.set('severity', opts.severity)
+    if (opts?.category) qs.set('category', opts.category)
+    return request<VelocityThroughputResponse>(
+      `/api/analytics/velocity/throughput?${qs.toString()}`,
+    )
+  },
+
+  getResidualReduction: (opts?: { severity?: Severity; category?: string }) => {
+    const qs = new URLSearchParams()
+    if (opts?.severity) qs.set('severity', opts.severity)
+    if (opts?.category) qs.set('category', opts.category)
+    const query = qs.toString() ? `?${qs.toString()}` : ''
+    return request<ResidualReductionResponse>(
+      `/api/analytics/velocity/residual-reduction${query}`,
+    )
+  },
 }
 
 // -------------------------------------------------------------------------
