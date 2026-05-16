@@ -94,7 +94,7 @@ def test_login_missing_field_returns_422(client):
 
 
 def test_refresh_with_valid_cookie_issues_new_access_token(client, existing_local_user):
-    refresh = create_refresh_token(existing_local_user.id)
+    refresh = create_refresh_token(existing_local_user.id, existing_local_user.session_version)
     client.cookies.set("refresh_token", refresh, path="/api/auth/refresh")
     resp = client.post("/api/auth/refresh")
     assert resp.status_code == 200
@@ -110,7 +110,7 @@ def test_refresh_without_cookie_returns_401(client):
 
 def test_refresh_with_access_token_in_refresh_slot_returns_401(client, existing_local_user):
     """An access token must not be accepted as a refresh token (type claim guard)."""
-    access = create_access_token(existing_local_user.id)
+    access = create_access_token(existing_local_user.id, existing_local_user.session_version)
     client.cookies.set("refresh_token", access, path="/api/auth/refresh")
     resp = client.post("/api/auth/refresh")
     assert resp.status_code == 401
@@ -132,7 +132,7 @@ def test_refresh_for_inactive_user_returns_401(client, db):
     db.add(user)
     db.commit()
     db.refresh(user)
-    refresh = create_refresh_token(user.id)
+    refresh = create_refresh_token(user.id, user.session_version)
     client.cookies.set("refresh_token", refresh, path="/api/auth/refresh")
     resp = client.post("/api/auth/refresh")
     assert resp.status_code == 401
@@ -204,7 +204,7 @@ def test_me_with_garbage_cookie_returns_401(client):
 
 def test_me_with_refresh_token_in_access_slot_returns_401(client, existing_local_user):
     """A refresh token must not authenticate via access_token cookie."""
-    refresh = create_refresh_token(existing_local_user.id)
+    refresh = create_refresh_token(existing_local_user.id, existing_local_user.session_version)
     client.cookies.set("access_token", refresh)
     resp = client.get("/api/auth/me")
     assert resp.status_code == 401
@@ -253,7 +253,7 @@ def test_change_password_sso_user_returns_400(client, db, login_as):
     db.commit()
     db.refresh(sso_user)
     # Inject a valid access token cookie directly (can't log in via password)
-    access = create_access_token(sso_user.id)
+    access = create_access_token(sso_user.id, sso_user.session_version)
     client.cookies.set("access_token", access)
     resp = client.post(
         "/api/auth/change-password",
@@ -393,7 +393,7 @@ def test_me_returns_has_password_false_for_sso_user(client, db):
     db.add(sso_user)
     db.commit()
     db.refresh(sso_user)
-    access = create_access_token(sso_user.id)
+    access = create_access_token(sso_user.id, sso_user.session_version)
     client.cookies.set("access_token", access)
     resp = client.get("/api/auth/me")
     assert resp.status_code == 200

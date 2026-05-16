@@ -4,6 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, field_validator
 
+from app.core.roles import UserRole
 from app.schemas._password_policy import validate_password_complexity
 
 
@@ -19,7 +20,7 @@ class LoginResponse(BaseModel):
     """Returned after a successful login. Tokens are in HTTP-only cookies, not here."""
     user_id: int
     email: str
-    role: str
+    role: UserRole
     full_name: str | None
     is_active: bool
     created_at: datetime

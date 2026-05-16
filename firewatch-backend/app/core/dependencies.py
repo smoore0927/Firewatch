@@ -117,13 +117,9 @@ def _get_authenticated_user(
     if not user:
         raise credentials_exception
 
-    last_logout = user.last_logout_at
-    if last_logout is not None:
-        # iat is a Unix timestamp (int); last_logout_at is timezone-aware datetime
-        token_iat = payload.get("iat", 0)
-        logout_ts = last_logout.replace(tzinfo=timezone.utc).timestamp() if last_logout.tzinfo is None else last_logout.timestamp()
-        if token_iat < logout_ts:
-            raise credentials_exception
+    token_sv = payload.get("sv")
+    if token_sv != user.session_version:
+        raise credentials_exception
 
     return user
 

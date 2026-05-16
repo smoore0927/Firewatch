@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
+from app.core.roles import UserRole
 from app.schemas.dashboard import DashboardSummaryResponse, ScoreHistoryResponse
 
 
@@ -13,7 +15,7 @@ class ReportUserRef(BaseModel):
     id: int
     email: str
     full_name: str | None
-    role: str
+    role: UserRole
 
 
 class ReportDateRange(BaseModel):
@@ -29,7 +31,7 @@ class RiskReportRow(BaseModel):
     current_likelihood: int | None
     current_impact: int | None
     current_score: int | None
-    severity: str
+    severity: Literal["Low", "Medium", "High", "Critical", "Unscored"]
     owner_name: str | None
     next_review_date: date | None
 
