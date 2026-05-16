@@ -17,6 +17,8 @@ A NIST 800-30 aligned cybersecurity risk register. Track risks, score them by li
 - **Session revocation** — logout immediately invalidates both the access token and refresh token server-side; tokens issued before the last logout are rejected on every subsequent request
 - **SCIM 2.0 provisioning** — optional IdP-driven user lifecycle management; Entra or Okta can automatically deactivate Firewatch accounts when users are offboarded, with immediate token invalidation
 - **Continuous Access Evaluation (CAEP)** — optional receiver endpoint for IdP-pushed security events (session revoked, account disabled, credential changed); enables near-real-time access revocation without polling
+- **Outbound webhook notifications** — admin-managed subscriptions receive signed HTTP POST events when risks are assigned, reviews become overdue, or response deadlines pass; HMAC-SHA256 signed with per-subscription secrets; three-attempt delivery with exponential backoff and per-subscription delivery history
+- **Pluggable secrets provider** — sensitive settings can be resolved from environment variables (default), Docker / Kubernetes file mounts, HashiCorp Vault, Azure Key Vault, or AWS Secrets Manager; existing deployments require no configuration changes
 - **Database flexibility** — SQLite out of the box, PostgreSQL for production
 
 ## How It Works
@@ -85,7 +87,7 @@ copy firewatch-backend\.env.example firewatch-backend\.env
 Open `firewatch-backend/.env` and set `SECRET_KEY` to a random value:
 
 ```bash
-python -c "import secrets; print(secrets.token_hex(32))"
+openssl rand -hex 32
 ```
 
 Then start everything:
@@ -118,7 +120,7 @@ All configuration lives in `firewatch-backend/.env`. The only required value is 
 
 | Variable | Default | Description |
 |---|---|---|
-| `SECRET_KEY` | *(required)* | Signs JWT tokens — generate with `secrets.token_hex(32)` |
+| `SECRET_KEY` | *(required)* | Signs JWT tokens — generate with `openssl rand -hex 32` |
 | `DATABASE_URL` | `sqlite:///./firewatch.db` | Use `postgresql://user:pass@host/db` for Postgres |
 | `DEBUG` | `False` | Set `True` to enable `/docs` and `/redoc` |
 | `CORS_ORIGINS` | `http://localhost:3000` | Comma-separated list of allowed frontend origins |
@@ -152,6 +154,35 @@ All configuration lives in `firewatch-backend/.env`. The only required value is 
 |---|---|---|
 | `CAEP_ENABLED` | `False` | Set `True` to accept inbound CAEP events |
 | `CAEP_AUDIENCE` | *(OIDC_CLIENT_ID)* | Expected `aud` claim in the SET JWT. Defaults to `OIDC_CLIENT_ID` if unset. |
+
+**Webhook notifications (optional)** — admin-managed outbound webhooks that POST signed events to subscriber URLs. No configuration required to use the feature; the settings below harden at-rest encryption and enable external secret storage.
+
+| Variable | Default | Description |
+|---|---|---|
+| `WEBHOOK_KEK` | *(derived from SECRET_KEY)* | Master key for at-rest webhook secret encryption. Generate with `openssl rand -base64 32`. Set explicitly to decouple from `SECRET_KEY` rotation. |
+| `WEBHOOK_KEK_PREVIOUS` | — | Previous master key. Set alongside `WEBHOOK_KEK` during a rotation transition so existing ciphertext remains readable until re-encrypted. |
+
+**Secrets provider (optional)** — resolves `SECRET_KEY`, `WEBHOOK_KEK`, `OIDC_CLIENT_SECRET`, `SCIM_BEARER_TOKEN`, and `DATABASE_URL` from an external secret manager instead of plain env vars. Defaults to reading from the environment; existing deployments require no changes.
+
+| Variable | Default | Description |
+|---|---|---|
+| `SECRETS_BACKEND` | `env` | One of `env`, `file`, `vault`, `azure_keyvault`, `aws` |
+| `SECRETS_FILE_PATH` | `/run/secrets` | Base path for `file` backend (Docker secrets, k8s volume mounts) |
+| `VAULT_ADDR` | — | HashiCorp Vault server URL (e.g. `https://vault.example.com`) |
+| `VAULT_TOKEN` | — | Vault token for dev / CI. Use AppRole in production. |
+| `VAULT_ROLE_ID` / `VAULT_SECRET_ID` | — | AppRole credentials for Vault production auth |
+| `VAULT_MOUNT_PATH` | `secret` | KV v2 mount point in Vault |
+| `VAULT_PATH_PREFIX` | `firewatch` | Path prefix under which secrets are stored (e.g. `firewatch/SECRET_KEY`) |
+| `AZURE_KEYVAULT_URL` | — | Azure Key Vault URL. Uses `DefaultAzureCredential` — Managed Identity in production, `az login` in dev. |
+| `AWS_REGION` | — | AWS region for Secrets Manager. Uses ambient boto3 credential chain. |
+
+Install the optional client library for your chosen backend:
+
+```bash
+pip install hvac                                    # vault
+pip install azure-keyvault-secrets azure-identity  # azure_keyvault
+pip install boto3                                   # aws
+```
 
 ## Running Tests
 

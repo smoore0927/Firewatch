@@ -29,6 +29,7 @@ import RiskFormPage from '@/pages/RiskFormPage'
 import SettingsPasswordPage from '@/pages/SettingsPasswordPage'
 import SettingsUsersPage from '@/pages/SettingsUsersPage'
 import SettingsApiKeysPage from '@/pages/SettingsApiKeysPage'
+import SettingsWebhooksPage from '@/pages/SettingsWebhooksPage'
 import AuditLogPage from '@/pages/AuditLogPage'
 
 export default function App() {
@@ -58,6 +59,7 @@ export default function App() {
             <Route path="password" element={<SettingsPasswordPage />} />
             <Route element={<AdminRoute />}>
               <Route path="users" element={<SettingsUsersPage />} />
+              <Route path="webhooks" element={<SettingsWebhooksPage />} />
               <Route path="audit-log" element={<AuditLogPage />} />
             </Route>
             <Route element={<AdminRoute roles={['admin', 'security_analyst']} />}>

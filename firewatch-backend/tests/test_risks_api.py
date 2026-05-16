@@ -672,3 +672,70 @@ def test_export_then_import_round_trip(client, admin_user, login_as):
     listing = client.get("/api/risks").json()
     titles = {item["title"] for item in listing["items"]}
     assert "Imported back" in titles
+
+
+# ---------------------------------------------------------------------------
+# risk.assigned event emission
+# ---------------------------------------------------------------------------
+
+
+def test_changing_owner_emits_risk_assigned_event(
+    client, admin_user, owner_user, login_as, monkeypatch
+):
+    from app.services import events as events_module
+    from app.services import risk_service as risk_service_module
+
+    captured: list[dict] = []
+
+    def fake_emit_sync(event_type, *, subject, data, actor=None):
+        captured.append({
+            "type": event_type,
+            "subject": subject,
+            "data": data,
+            "actor": actor,
+        })
+        return {"id": "evt_fake", "type": event_type}
+
+    monkeypatch.setattr(risk_service_module.events, "emit_sync", fake_emit_sync)
+
+    login_as(admin_user)
+    created = _create_risk(client, owner_id=admin_user.id)
+
+    resp = client.put(
+        f"/api/risks/{created['risk_id']}",
+        json={"owner_id": owner_user.id},
+    )
+    assert resp.status_code == 200
+
+    risk_events = [c for c in captured if c["type"] == "risk.assigned"]
+    assert len(risk_events) == 1
+    env = risk_events[0]
+    assert env["subject"]["risk_id"] == created["risk_id"]
+    assert env["data"]["new_owner_id"] == owner_user.id
+    assert env["data"]["previous_owner_id"] == admin_user.id
+    assert env["actor"]["id"] == admin_user.id
+    assert env["actor"]["email"] == admin_user.email
+
+
+def test_updating_other_fields_does_not_emit_risk_assigned(
+    client, admin_user, login_as, monkeypatch
+):
+    from app.services import risk_service as risk_service_module
+
+    captured: list[str] = []
+
+    def fake_emit_sync(event_type, **kwargs):
+        captured.append(event_type)
+        return {}
+
+    monkeypatch.setattr(risk_service_module.events, "emit_sync", fake_emit_sync)
+
+    login_as(admin_user)
+    created = _create_risk(client)
+
+    resp = client.put(
+        f"/api/risks/{created['risk_id']}",
+        json={"title": "Just a rename"},
+    )
+    assert resp.status_code == 200
+    assert "risk.assigned" not in captured

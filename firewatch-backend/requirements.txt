@@ -11,6 +11,9 @@ psycopg2-binary>=2.9.0
 PyJWT[crypto]>=2.9.0
 bcrypt>=4.0.0
 
+# Symmetric encryption at rest (Fernet + HKDF, see app/core/crypto.py)
+cryptography>=42.0.0
+
 # Config & validation
 pydantic>=2.0.0
 pydantic-settings>=2.0.0   # reads .env into typed Settings object
@@ -26,3 +29,9 @@ slowapi>=0.1.9
 joserfc>=1.0.0
 httpx>=0.27.0
 itsdangerous>=2.2.0
+
+# --- Optional secrets provider backends (uncomment as needed) ---
+# hvac>=2.0.0                          # SECRETS_BACKEND=vault
+# azure-keyvault-secrets>=4.0.0        # SECRETS_BACKEND=azure_keyvault
+# azure-identity>=1.0.0                # SECRETS_BACKEND=azure_keyvault
+# boto3>=1.0.0                         # SECRETS_BACKEND=aws

@@ -7,7 +7,7 @@ is malformed, the app refuses to start rather than failing at runtime.
 """
 
 from pydantic_settings import BaseSettings
-from pydantic import field_validator
+from pydantic import field_validator, ValidationInfo
 
 from app.core.roles import UserRole
 
@@ -17,14 +17,40 @@ class Settings(BaseSettings):
     APP_NAME: str = "Firewatch"
     DEBUG: bool = False
 
+    # --- Secrets provider (declared first so the SECRET_KEY validator can see it) ---
+    SECRETS_BACKEND: str = "env"
+    VAULT_ADDR: str | None = None
+    VAULT_TOKEN: str | None = None
+    VAULT_ROLE_ID: str | None = None
+    VAULT_SECRET_ID: str | None = None
+    VAULT_MOUNT_PATH: str = "secret"
+    VAULT_PATH_PREFIX: str = "firewatch"
+    AZURE_KEYVAULT_URL: str | None = None
+    AWS_REGION: str | None = None
+    SECRETS_FILE_PATH: str = "/run/secrets"
+
     # Database — defaults to a local SQLite file if not set in .env
     DATABASE_URL: str = "sqlite:///./firewatch.db"
 
-    # Auth -- these are security-critical; no defaults for the secret key
-    SECRET_KEY: str
+    # Auth -- these are security-critical. When SECRETS_BACKEND=env (the default),
+    # the placeholder/empty validator below enforces a real value. When a non-env
+    # backend is configured the value is populated at lifespan startup, so the
+    # field starts empty and the validator skips its placeholder check.
+    SECRET_KEY: str = ""
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
+    # Optional master key (KEK) for at-rest webhook secret encryption. If unset, a
+    # KEK is derived from SECRET_KEY via HKDF using a distinct context — fine for
+    # dev, but in prod you should set this explicitly so SECRET_KEY rotation does
+    # not invalidate webhook ciphertexts. Generate one with:
+    #   openssl rand -hex 32
+    WEBHOOK_KEK: str | None = None
+
+    # Optional second key for rotation transition windows.
+    # When set, decrypt tries both keys (MultiFernet); encrypt always uses WEBHOOK_KEK.
+    WEBHOOK_KEK_PREVIOUS: str | None = None
 
     # CORS -- stored as a comma-separated string in .env
     # Kept as str here because pydantic-settings v2 tries to JSON-decode list[str]
@@ -80,11 +106,16 @@ class Settings(BaseSettings):
 
     @field_validator("SECRET_KEY")
     @classmethod
-    def secret_key_must_not_be_placeholder(cls, v: str) -> str:
-        if v == "change-me-generate-a-real-secret":
+    def secret_key_must_not_be_placeholder(cls, v: str, info: ValidationInfo) -> str:
+        # External secrets backends populate SECRET_KEY at lifespan startup, so
+        # an empty/placeholder value is acceptable here — main.py enforces a
+        # real value after the provider has run.
+        if info.data.get("SECRETS_BACKEND", "env") != "env":
+            return v
+        if v == "change-me-generate-a-real-secret" or v == "":
             raise ValueError(
                 "SECRET_KEY is still the placeholder value. "
-                "Run: python -c \"import secrets; print(secrets.token_hex(32))\""
+                "Run: openssl rand -hex 32"
             )
         return v
 
