@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from app.models.risk import Risk, RiskAssessment, RiskHistory, RiskResponse, RiskStatus
 from app.models.user import User, UserRole
 from app.schemas.risk import AssessmentCreate, ResponseCreate, RiskCreate, RiskUpdate
+from app.services import events
 
 
 def _to_str(value: object) -> str | None:
@@ -216,6 +217,11 @@ class RiskService:
         new_likelihood = update_fields.pop("likelihood", None)
         new_impact = update_fields.pop("impact", None)
 
+        # Snapshot owner_id before mutation so we can fire risk.assigned post-commit.
+        owner_changed = False
+        old_owner_id = risk.owner_id
+        new_owner_id = old_owner_id
+
         # Write a history row for every field that actually changed.
         # _to_str() handles enum values correctly (stores "open" not "RiskStatus.open").
         for field, new_value in update_fields.items():
@@ -229,6 +235,9 @@ class RiskService:
                     changed_by_id=updated_by.id,
                 ))
                 setattr(risk, field, new_value)
+                if field == "owner_id":
+                    owner_changed = True
+                    new_owner_id = new_value
 
         # If either scoring value was sent, create a new assessment row
         if new_likelihood is not None or new_impact is not None:
@@ -247,6 +256,19 @@ class RiskService:
 
         self.db.commit()
         self.db.refresh(risk)
+
+        # Emit risk.assigned AFTER the commit so subscribers see committed state.
+        if owner_changed:
+            events.emit_sync(
+                "risk.assigned",
+                subject={"risk_id": risk.risk_id, "title": risk.title},
+                data={
+                    "new_owner_id": new_owner_id,
+                    "previous_owner_id": old_owner_id,
+                },
+                actor={"id": updated_by.id, "email": updated_by.email},
+            )
+
         return risk
 
     # -----------------------------------------------------------------------

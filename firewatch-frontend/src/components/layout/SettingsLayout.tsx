@@ -12,7 +12,7 @@
  */
 import { Outlet, NavLink } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { KeyRound, Key, ScrollText, UserCog, ChevronLeft, ChevronRight } from 'lucide-react'
+import { KeyRound, Key, ScrollText, UserCog, Webhook, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useResizableSidebar } from '@/lib/useResizableSidebar'
 import { cn } from '@/lib/utils'
@@ -86,6 +86,17 @@ export default function SettingsLayout() {
             >
               <Key className="h-4 w-4 shrink-0" />
               {!isNarrow && <span>API keys</span>}
+            </NavLink>
+          )}
+
+          {user?.role === 'admin' && (
+            <NavLink
+              to="/settings/webhooks"
+              title={isNarrow ? 'Webhooks' : undefined}
+              className={linkClass}
+            >
+              <Webhook className="h-4 w-4 shrink-0" />
+              {!isNarrow && <span>Webhooks</span>}
             </NavLink>
           )}
 

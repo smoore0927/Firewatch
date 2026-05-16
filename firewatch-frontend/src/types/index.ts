@@ -91,6 +91,18 @@ export type ApiKeyOwnerSummary = components['schemas']['ApiKeyOwnerSummary']
 export type ApiKeyWithOwner = components['schemas']['ApiKeyWithOwnerResponse']
 
 // -------------------------------------------------------------------------
+// Webhooks
+// -------------------------------------------------------------------------
+
+export type WebhookSubscription = components['schemas']['WebhookSubscriptionResponse']
+export type WebhookSubscriptionCreated = components['schemas']['WebhookSubscriptionCreatedResponse']
+export type WebhookSubscriptionCreate = components['schemas']['WebhookSubscriptionCreate']
+export type WebhookSubscriptionUpdate = components['schemas']['WebhookSubscriptionUpdate']
+export type WebhookDelivery = components['schemas']['WebhookDeliveryResponse']
+export type WebhookDeliveryList = components['schemas']['WebhookDeliveryListResponse']
+export type WebhookEventType = 'risk.assigned' | 'review.overdue' | 'response.overdue' | 'firewatch.test'
+
+// -------------------------------------------------------------------------
 // Frontend-only types (no backend equivalent)
 // -------------------------------------------------------------------------
 

@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Outbound webhook subscriptions — admin-managed integrations that receive HMAC-SHA256 signed HTTP POST notifications. Supports `risk.assigned` (fires when a risk's owner changes), `review.overdue` (daily per-owner digest of risks past their next review date), and `response.overdue` (fires the day after a response's target date passes without completion). Each event type is subscribable independently. Admin settings page at `/settings/webhooks` provides subscription CRUD, a test-fire button, and a per-subscription delivery history panel with retry tracking.
+- Webhook delivery reliability — up to three delivery attempts per event with 1 s / 5 s / 25 s exponential backoff. Every attempt is persisted to `webhook_deliveries` for debugging. Consecutive-failure counter tracks unreliable endpoints.
+- Internal event bus (`services/events.py`) — lightweight pub/sub backbone decoupling event producers (risk service, daily scheduler) from delivery subscribers. New channels (e.g. email) can subscribe without touching existing code.
+- Daily asyncio scheduler — fires at 09:00 UTC, guarded by an atomic `UPDATE scheduler_state` so multi-replica deployments do not double-send. Also invocable via `POST /api/internal/tick` (admin-only) for ops and test purposes.
+- Webhook HMAC secrets encrypted at rest with Fernet keyed off `WEBHOOK_KEK` (HKDF-from-`SECRET_KEY` dev fallback). `WEBHOOK_KEK_PREVIOUS` enables zero-downtime key rotation via `MultiFernet`.
+- Pluggable secrets provider (`SECRETS_BACKEND`) — sensitive settings (`SECRET_KEY`, `WEBHOOK_KEK`, `OIDC_CLIENT_SECRET`, `SCIM_BEARER_TOKEN`, `DATABASE_URL`) can be resolved at startup from environment variables (default), Docker / Kubernetes file mounts (`file`), HashiCorp Vault KV v2 (`vault`), Azure Key Vault (`azure_keyvault`), or AWS Secrets Manager (`aws`). Existing deployments require no configuration changes.
 - System-wide audit log that captures auth sign-in/sign-out, SSO login, user creation/deactivation, and all risk CRUD operations with actor, IP, resource type, resource ID, and action metadata.
 - Audit log API (`GET /api/audit/logs`, `GET /api/audit/actions`) — admin-only, with filters for action, user, resource type, and date range, plus pagination.
 - Admin Settings page (`/settings`) in the frontend with a filterable, paginated audit log panel; protected by `AdminRoute` so non-admins are redirected to the dashboard.

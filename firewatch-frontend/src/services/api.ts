@@ -120,7 +120,7 @@ export const authApi = {
 // Risks
 // -------------------------------------------------------------------------
 
-import type { ApiKey, ApiKeyCreated, ApiKeyWithOwner, AuditLogListResponse, DashboardSummary, ImportResult, ResidualReductionResponse, Risk, RiskCreate, RiskListResponse, RiskReport, RiskUpdate, ScoreHistoryResponse, ScoreTotalsBySeverityResponse, Severity, User, UserRole, VelocityMTTMResponse, VelocityThroughputResponse } from '@/types'
+import type { ApiKey, ApiKeyCreated, ApiKeyWithOwner, AuditLogListResponse, DashboardSummary, ImportResult, ResidualReductionResponse, Risk, RiskCreate, RiskListResponse, RiskReport, RiskUpdate, ScoreHistoryResponse, ScoreTotalsBySeverityResponse, Severity, User, UserRole, VelocityMTTMResponse, VelocityThroughputResponse, WebhookDeliveryList, WebhookSubscription, WebhookSubscriptionCreate, WebhookSubscriptionCreated, WebhookSubscriptionUpdate } from '@/types'
 
 // Parses a Content-Disposition header value to extract the filename.
 // Handles both `filename="x.csv"` and the RFC 5987 `filename*=UTF-8''x.csv` form.
@@ -298,6 +298,33 @@ export const apiKeysApi = {
     }),
   revoke: (keyId: number) =>
     request<void>(`/api/api-keys/${keyId}`, { method: 'DELETE' }),
+}
+
+// -------------------------------------------------------------------------
+// Webhooks (admin-only)
+// -------------------------------------------------------------------------
+
+export const webhooksApi = {
+  list: () => request<WebhookSubscription[]>('/api/webhooks'),
+  get: (id: number) => request<WebhookSubscription>(`/api/webhooks/${id}`),
+  create: (payload: WebhookSubscriptionCreate) =>
+    request<WebhookSubscriptionCreated>('/api/webhooks', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  update: (id: number, payload: WebhookSubscriptionUpdate) =>
+    request<WebhookSubscription>(`/api/webhooks/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  remove: (id: number) =>
+    request<void>(`/api/webhooks/${id}`, { method: 'DELETE' }),
+  test: (id: number) =>
+    request<{ delivery_id: number }>(`/api/webhooks/${id}/test`, { method: 'POST' }),
+  deliveries: (id: number, skip = 0, limit = 50) =>
+    request<WebhookDeliveryList>(
+      `/api/webhooks/${id}/deliveries?skip=${skip}&limit=${limit}`,
+    ),
 }
 
 // -------------------------------------------------------------------------
