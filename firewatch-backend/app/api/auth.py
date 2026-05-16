@@ -85,7 +85,7 @@ def login(
             detail="Invalid email or password",
         )
 
-    set_auth_cookies(response, user.id)
+    set_auth_cookies(response, user.id, user.session_version)
     record_event(
         db,
         action="auth.login.success",
@@ -154,22 +154,16 @@ def refresh(
         _record_failure("user_not_found")
         raise invalid
 
-    # Reject refresh tokens issued before the user's last logout
-    if user.last_logout_at is not None:
-        token_iat = payload.get("iat", 0)
-        logout_ts = (
-            user.last_logout_at.replace(tzinfo=timezone.utc).timestamp()
-            if user.last_logout_at.tzinfo is None
-            else user.last_logout_at.timestamp()
-        )
-        if token_iat < logout_ts:
-            _record_failure("token_revoked")
-            raise invalid
+    # Reject refresh tokens whose session_version doesn't match the user's current version
+    token_sv = payload.get("sv")
+    if token_sv != user.session_version:
+        _record_failure("token_revoked")
+        raise invalid
 
     # Issue a fresh access token (not a new refresh token — avoids token rotation complexity)
     response.set_cookie(
         key="access_token",
-        value=create_access_token(user.id),
+        value=create_access_token(user.id, user.session_version),
         httponly=True,
         secure=not settings.DEBUG,
         samesite="lax",
@@ -189,6 +183,7 @@ def logout(
     but the client can no longer send them."""
     response.delete_cookie("access_token")
     response.delete_cookie("refresh_token", path="/api/auth/refresh")
+    current_user.session_version += 1
     current_user.last_logout_at = datetime.now(timezone.utc)
     db.add(current_user)
     record_event(
@@ -231,8 +226,9 @@ def change_password(
         )
     current_user.hashed_password = hash_password(body.new_password)
     current_user.must_change_password = False
+    current_user.session_version += 1
     current_user.last_logout_at = datetime.now(timezone.utc)
-    set_auth_cookies(response, current_user.id)
+    set_auth_cookies(response, current_user.id, current_user.session_version)
     db.add(current_user)
     record_event(
         db,

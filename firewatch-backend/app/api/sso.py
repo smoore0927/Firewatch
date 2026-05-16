@@ -187,7 +187,7 @@ async def sso_callback(
     response = RedirectResponse(f"{settings.FRONTEND_URL}/dashboard", status_code=302)
     # Drop the one-shot flow cookie before issuing the auth cookies on the same response.
     response.delete_cookie(OIDC_FLOW_COOKIE, path=OIDC_FLOW_COOKIE_PATH)
-    set_auth_cookies(response, user.id)
+    set_auth_cookies(response, user.id, user.session_version)
     record_event(
         db,
         action="auth.sso.login.success",

@@ -36,6 +36,7 @@ class User(Base):
         Boolean, nullable=False, default=False, server_default="0"
     )
     last_logout_at = Column(DateTime(timezone=True), nullable=True)
+    session_version = Column(Integer, nullable=False, default=1, server_default="1")
     created_at = Column(DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'), nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

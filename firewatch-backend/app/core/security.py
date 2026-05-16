@@ -45,31 +45,36 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return bcrypt.checkpw(password_bytes, hashed_password.encode("utf-8"))
 
 
-def _create_token(subject: Any, token_type: str, expires_delta: timedelta) -> str:
-    """Internal: encode a JWT with a subject, type claim, and expiry."""
+def _create_token(
+    subject: Any, token_type: str, expires_delta: timedelta, session_version: int
+) -> str:
+    """Internal: encode a JWT with a subject, type claim, sv claim, and expiry."""
     expire = datetime.now(timezone.utc) + expires_delta
     payload = {
         "sub": str(subject),  # subject — usually the user's numeric ID
         "type": token_type,   # "access" or "refresh" — validated on decode
+        "sv": session_version,  # session version — bumped on logout/password change
         "exp": expire,
         "iat": datetime.now(timezone.utc),
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
-def create_access_token(user_id: int) -> str:
+def create_access_token(user_id: int, session_version: int) -> str:
     return _create_token(
         subject=user_id,
         token_type="access",
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+        session_version=session_version,
     )
 
 
-def create_refresh_token(user_id: int) -> str:
+def create_refresh_token(user_id: int, session_version: int) -> str:
     return _create_token(
         subject=user_id,
         token_type="refresh",
         expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+        session_version=session_version,
     )
 
 
@@ -81,11 +86,11 @@ def decode_token(token: str) -> dict:
     return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
 
 
-def set_auth_cookies(response: Response, user_id: int) -> None:
+def set_auth_cookies(response: Response, user_id: int, session_version: int) -> None:
     """Write both auth cookies. Shared by password login and OIDC callback."""
     response.set_cookie(
         key="access_token",
-        value=create_access_token(user_id),
+        value=create_access_token(user_id, session_version),
         httponly=True,
         secure=not settings.DEBUG,
         samesite="lax",
@@ -93,7 +98,7 @@ def set_auth_cookies(response: Response, user_id: int) -> None:
     )
     response.set_cookie(
         key="refresh_token",
-        value=create_refresh_token(user_id),
+        value=create_refresh_token(user_id, session_version),
         httponly=True,
         secure=not settings.DEBUG,
         samesite="lax",
