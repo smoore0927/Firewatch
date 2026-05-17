@@ -5,12 +5,14 @@ from __future__ import annotations
 import asyncio
 import hmac
 import json
+import socket
 from hashlib import sha256
 from typing import Any
 
 import httpx
 import pytest
 
+from app.core.config import settings
 from app.core.crypto import decrypt_from_storage
 from app.models.user import User, UserRole
 from app.models.webhook import DeliveryStatus, WebhookDelivery, WebhookSubscription
@@ -71,10 +73,11 @@ class _DummySession:
 
 
 class _RecordedRequest:
-    def __init__(self, url: str, content: bytes, headers: dict):
+    def __init__(self, url: str, content: bytes, headers: dict, extensions: dict):
         self.url = url
         self.content = content
         self.headers = headers
+        self.extensions = extensions
 
 
 def _install_httpx_mock(monkeypatch, *, responses: list[Any]) -> list[_RecordedRequest]:
@@ -87,7 +90,14 @@ def _install_httpx_mock(monkeypatch, *, responses: list[Any]) -> list[_RecordedR
     response_iter = iter(responses)
 
     async def fake_post(self, url, *, content, headers, **kwargs):
-        recorded.append(_RecordedRequest(url=url, content=content, headers=dict(headers)))
+        recorded.append(
+            _RecordedRequest(
+                url=url,
+                content=content,
+                headers=dict(headers),
+                extensions=dict(kwargs.get("extensions") or {}),
+            )
+        )
         try:
             nxt = next(response_iter)
         except StopIteration:
@@ -366,6 +376,60 @@ def test_deliver_skips_inactive_or_unsubscribed(
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Delivery-time URL re-validation (DNS-rebinding defense)
+# ---------------------------------------------------------------------------
+
+
+def test_delivery_marks_failed_when_target_now_resolves_internal(
+    db, admin_row, patch_session_local, monkeypatch
+):
+    """A sub that was valid at create-time but flips to a private IP at
+    delivery-time must be marked failed without ever calling httpx.post."""
+    monkeypatch.setattr(webhook_service, "RETRY_BACKOFF", [0, 0, 0])
+    monkeypatch.setattr(settings, "DEBUG", True)
+
+    sub, _ = webhook_service.create(
+        db,
+        name="rebind",
+        target_url="https://flips-to-internal.example.com/hook",
+        event_types=["firewatch.test"],
+        created_by=admin_row.id,
+    )
+
+    # Flip into prod mode and make the host resolve to a private IP.
+    monkeypatch.setattr(settings, "DEBUG", False)
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *a, **kw: [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("10.0.0.5", 0))],
+    )
+
+    # If the guard fails, this would be hit. Treat that as a test failure.
+    async def fail_post(self, url, *, content, headers, **kwargs):
+        raise AssertionError(f"httpx.post should not have been called for {url}")
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fail_post)
+
+    asyncio.run(_run_delivery(sub))
+
+    db.expire_all()
+    delivery = (
+        db.query(WebhookDelivery)
+        .filter(WebhookDelivery.subscription_id == sub.id)
+        .first()
+    )
+    assert delivery is not None
+    assert delivery.status == DeliveryStatus.failed
+    assert delivery.completed_at is not None
+    assert delivery.error is not None
+    assert "private/internal IP" in delivery.error
+    assert "10.0.0.5" in delivery.error
+
+    sub_reloaded = db.query(WebhookSubscription).filter(WebhookSubscription.id == sub.id).first()
+    assert sub_reloaded.consecutive_failures == 1
+
+
 async def _run_delivery(sub: WebhookSubscription) -> None:
     envelope = {
         "id": "evt_test_abc",
@@ -380,3 +444,170 @@ async def _run_delivery(sub: WebhookSubscription) -> None:
     pending = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
     if pending:
         await asyncio.gather(*pending, return_exceptions=True)
+
+
+# ---------------------------------------------------------------------------
+# IP pinning + redirect handling
+# ---------------------------------------------------------------------------
+
+
+def test_delivery_pins_ipv4_and_sets_host_and_sni(
+    db, admin_row, patch_session_local, monkeypatch
+):
+    """In prod mode, delivery POSTs to the pinned IP literal, preserving the
+    hostname for Host header + SNI."""
+    monkeypatch.setattr(webhook_service, "RETRY_BACKOFF", [0, 0, 0])
+    monkeypatch.setattr(settings, "DEBUG", True)
+
+    sub, _ = webhook_service.create(
+        db,
+        name="pin-v4",
+        target_url="https://legit.example.com/hook",
+        event_types=["firewatch.test"],
+        created_by=admin_row.id,
+    )
+
+    monkeypatch.setattr(settings, "DEBUG", False)
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *a, **kw: [
+            (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("8.8.8.8", 0))
+        ],
+    )
+
+    recorded = _install_httpx_mock(monkeypatch, responses=[200])
+
+    asyncio.run(_run_delivery(sub))
+
+    assert len(recorded) == 1
+    req = recorded[0]
+    assert req.url == "https://8.8.8.8:443/hook"
+    assert req.headers["Host"] == "legit.example.com"
+    assert req.extensions.get("sni_hostname") == "legit.example.com"
+
+    db.expire_all()
+    delivery = (
+        db.query(WebhookDelivery)
+        .filter(WebhookDelivery.subscription_id == sub.id)
+        .first()
+    )
+    assert delivery.status == DeliveryStatus.success
+
+
+def test_delivery_brackets_ipv6_pin(
+    db, admin_row, patch_session_local, monkeypatch
+):
+    monkeypatch.setattr(webhook_service, "RETRY_BACKOFF", [0, 0, 0])
+    monkeypatch.setattr(settings, "DEBUG", True)
+
+    sub, _ = webhook_service.create(
+        db,
+        name="pin-v6",
+        target_url="https://legit.example.com/hook",
+        event_types=["firewatch.test"],
+        created_by=admin_row.id,
+    )
+
+    monkeypatch.setattr(settings, "DEBUG", False)
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *a, **kw: [
+            (socket.AF_INET6, socket.SOCK_STREAM, 0, "", ("2606:4700::1", 0, 0, 0))
+        ],
+    )
+
+    recorded = _install_httpx_mock(monkeypatch, responses=[200])
+
+    asyncio.run(_run_delivery(sub))
+
+    assert len(recorded) == 1
+    assert "[2606:4700::1]" in recorded[0].url
+    assert recorded[0].url == "https://[2606:4700::1]:443/hook"
+
+
+def test_delivery_does_not_pin_in_debug_mode(
+    db, admin_row, patch_session_local, monkeypatch
+):
+    monkeypatch.setattr(webhook_service, "RETRY_BACKOFF", [0, 0, 0])
+    monkeypatch.setattr(settings, "DEBUG", True)
+
+    sub, _ = webhook_service.create(
+        db,
+        name="no-pin",
+        target_url="https://legit.example.com/hook",
+        event_types=["firewatch.test"],
+        created_by=admin_row.id,
+    )
+
+    recorded = _install_httpx_mock(monkeypatch, responses=[200])
+
+    asyncio.run(_run_delivery(sub))
+
+    assert len(recorded) == 1
+    req = recorded[0]
+    assert req.url == "https://legit.example.com/hook"
+    assert "Host" not in req.headers
+    assert "sni_hostname" not in req.extensions
+
+
+def test_delivery_treats_3xx_as_failure(
+    db, admin_row, patch_session_local, monkeypatch
+):
+    monkeypatch.setattr(webhook_service, "RETRY_BACKOFF", [0, 0, 0])
+
+    sub, _ = webhook_service.create(
+        db,
+        name="redirect",
+        target_url="https://example.invalid/hook",
+        event_types=["firewatch.test"],
+        created_by=admin_row.id,
+    )
+
+    _install_httpx_mock(monkeypatch, responses=[302, 302, 302])
+
+    asyncio.run(_run_delivery(sub))
+
+    db.expire_all()
+    delivery = (
+        db.query(WebhookDelivery)
+        .filter(WebhookDelivery.subscription_id == sub.id)
+        .first()
+    )
+    assert delivery.status == DeliveryStatus.failed
+    assert delivery.attempt_count == webhook_service.MAX_ATTEMPTS
+    assert delivery.http_status == 302
+    assert delivery.error is not None
+    assert "unexpected redirect" in delivery.error
+    assert "302" in delivery.error
+
+
+def test_async_client_constructed_with_follow_redirects_false(
+    db, admin_row, patch_session_local, monkeypatch
+):
+    """The AsyncClient must be built with follow_redirects=False explicitly."""
+    monkeypatch.setattr(webhook_service, "RETRY_BACKOFF", [0, 0, 0])
+
+    sub, _ = webhook_service.create(
+        db,
+        name="no-redirects",
+        target_url="https://example.invalid/hook",
+        event_types=["firewatch.test"],
+        created_by=admin_row.id,
+    )
+
+    captured_kwargs: list[dict] = []
+    real_init = httpx.AsyncClient.__init__
+
+    def spy_init(self, *args, **kwargs):
+        captured_kwargs.append(dict(kwargs))
+        return real_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(httpx.AsyncClient, "__init__", spy_init)
+    _install_httpx_mock(monkeypatch, responses=[200])
+
+    asyncio.run(_run_delivery(sub))
+
+    assert captured_kwargs, "AsyncClient was never constructed"
+    assert captured_kwargs[0].get("follow_redirects") is False

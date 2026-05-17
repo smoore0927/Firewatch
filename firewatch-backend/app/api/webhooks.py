@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_db, require_role
+from app.core.url_safety import validate_outbound_url
 from app.models.user import User, UserRole
 from app.schemas.webhook import (
     WebhookDeliveryListResponse,
@@ -24,6 +25,13 @@ from app.services import webhook_service
 from app.services.audit_service import record_event
 
 router = APIRouter(prefix="/webhooks", tags=["Webhooks"])
+
+
+def _validate_url_or_422(url: str) -> None:
+    try:
+        validate_outbound_url(url)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
 
 
 @router.get("", response_model=list[WebhookSubscriptionResponse])
@@ -41,10 +49,12 @@ def create_subscription(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_role(UserRole.admin))],
 ):
+    target_url = str(body.target_url)
+    _validate_url_or_422(target_url)
     row, plaintext = webhook_service.create(
         db,
         name=body.name,
-        target_url=str(body.target_url),
+        target_url=target_url,
         event_types=list(body.event_types),
         created_by=current_user.id,
     )
@@ -94,11 +104,14 @@ def update_subscription(
     current_user: Annotated[User, Depends(require_role(UserRole.admin))],
 ):
     sub = webhook_service.get(db, sub_id)
+    new_target_url = str(body.target_url) if body.target_url is not None else None
+    if new_target_url is not None:
+        _validate_url_or_422(new_target_url)
     updated = webhook_service.update(
         db,
         sub,
         name=body.name,
-        target_url=str(body.target_url) if body.target_url is not None else None,
+        target_url=new_target_url,
         event_types=list(body.event_types) if body.event_types is not None else None,
         is_active=body.is_active,
     )
@@ -145,6 +158,7 @@ async def fire_test(
 ) -> dict:
     """Fire a synthetic firewatch.test event at this subscription only."""
     sub = webhook_service.get(db, sub_id)
+    _validate_url_or_422(sub.target_url)
     delivery_id = await webhook_service.fire_test_event(db, sub)
     return {"delivery_id": delivery_id}
 

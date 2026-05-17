@@ -25,6 +25,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.crypto import decrypt_from_storage, encrypt_for_storage
+from app.core.url_safety import validate_outbound_url
 from app.models.database import SessionLocal
 from app.models.webhook import DeliveryStatus, WebhookDelivery, WebhookSubscription
 from app.services import events
@@ -243,6 +244,20 @@ async def _attempt_once(delivery_id: int, attempt_number: int) -> tuple[bool, bo
         if sub is None:
             return False, True
 
+        # DNS-rebinding defense: re-validate the target URL right before each
+        # POST and pin the resolved IP. A previously-public host could now
+        # resolve to a private IP.
+        try:
+            target = validate_outbound_url(sub.target_url)
+        except ValueError as exc:
+            delivery.attempt_count = attempt_number
+            delivery.status = DeliveryStatus.failed
+            delivery.error = _truncate(str(exc), MAX_ERROR_LEN)
+            delivery.completed_at = datetime.now(timezone.utc)
+            sub.consecutive_failures = (sub.consecutive_failures or 0) + 1
+            db.commit()
+            return False, True
+
         secret = decrypt_from_storage(sub.secret)
         body_bytes = delivery.payload_json.encode("utf-8")
         timestamp = int(datetime.now(timezone.utc).timestamp())
@@ -254,6 +269,22 @@ async def _attempt_once(delivery_id: int, attempt_number: int) -> tuple[bool, bo
             "X-Firewatch-Signature": f"sha256={signature}",
         }
 
+        scheme = target.parsed.scheme
+        hostname = target.parsed.hostname
+        path = target.parsed.path or "/"
+        query = f"?{target.parsed.query}" if target.parsed.query else ""
+
+        if target.pinned_ip is not None:
+            ip = target.pinned_ip
+            ip_literal = f"[{ip}]" if ":" in ip else ip
+            connect_url = f"{scheme}://{ip_literal}:{target.pinned_port}{path}{query}"
+            request_headers = {**headers, "Host": hostname}
+            extensions = {"sni_hostname": hostname}
+        else:
+            connect_url = sub.target_url
+            request_headers = headers
+            extensions = {}
+
         delivery.attempt_count = attempt_number
         db.commit()
 
@@ -262,12 +293,22 @@ async def _attempt_once(delivery_id: int, attempt_number: int) -> tuple[bool, bo
         error: str | None = None
         ok = False
         try:
-            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as client:
-                resp = await client.post(sub.target_url, content=body_bytes, headers=headers)
+            async with httpx.AsyncClient(
+                timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=False
+            ) as client:
+                resp = await client.post(
+                    connect_url,
+                    content=body_bytes,
+                    headers=request_headers,
+                    extensions=extensions,
+                )
             http_status = resp.status_code
             response_text = resp.text
-            ok = 200 <= resp.status_code < 300
-            if not ok:
+            if 200 <= resp.status_code < 300:
+                ok = True
+            elif 300 <= resp.status_code < 400:
+                error = f"unexpected redirect (HTTP {resp.status_code}); redirects are not followed"
+            else:
                 error = f"non-2xx status {resp.status_code}"
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
@@ -318,6 +359,7 @@ async def _attempt_once(delivery_id: int, attempt_number: int) -> tuple[bool, bo
 
 async def fire_test_event(db: Session, sub: WebhookSubscription) -> int:
     """Send one firewatch.test envelope to a single subscription. Returns delivery_id."""
+    validate_outbound_url(sub.target_url)
     envelope = {
         "id": f"evt_test_{secrets.token_hex(8)}",
         "type": "firewatch.test",

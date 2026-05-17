@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import json
+import socket
 
+import pytest
+
+from app.core.config import settings
 from app.models.audit_log import AuditLog
 from app.models.webhook import WebhookSubscription
 
@@ -227,4 +231,161 @@ def test_deliveries_endpoint_returns_empty_for_new_subscription(
     body = resp.json()
     assert body == {"total": 0, "items": []}
 
+
+# ---------------------------------------------------------------------------
+# SSRF / outbound URL safety
+# ---------------------------------------------------------------------------
+
+
+def _addrinfo(addr: str, family: int = socket.AF_INET) -> list[tuple]:
+    """Build a getaddrinfo return value containing a single address."""
+    sockaddr = (addr, 0) if family == socket.AF_INET else (addr, 0, 0, 0)
+    return [(family, socket.SOCK_STREAM, 0, "", sockaddr)]
+
+
+def _public_dns(monkeypatch) -> None:
+    """Pretend every hostname resolves to a globally-routable IP (8.8.8.8)."""
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **kw: _addrinfo("8.8.8.8"))
+
+
+def _enter_prod(monkeypatch) -> None:
+    """Flip DEBUG off AFTER login has happened (login needs Secure-cookie-friendly mode)."""
+    monkeypatch.setattr(settings, "DEBUG", False)
+
+
+def test_create_rejects_http_in_prod(client, admin_user, login_as, monkeypatch):
+    login_as(admin_user)
+    _enter_prod(monkeypatch)
+    _public_dns(monkeypatch)
+    resp = client.post(
+        "/api/webhooks",
+        json={
+            "name": "insecure",
+            "target_url": "http://example.com/hook",
+            "event_types": ["firewatch.test"],
+        },
+    )
+    assert resp.status_code == 422
+    assert "non-HTTPS" in resp.json()["detail"]
+
+
+def test_create_accepts_http_in_debug(client, admin_user, login_as):
+    # The .env / conftest default is DEBUG=True; no flip required.
+    login_as(admin_user)
+    resp = client.post(
+        "/api/webhooks",
+        json={
+            "name": "dev",
+            "target_url": "http://localhost:8000/hook",
+            "event_types": ["firewatch.test"],
+        },
+    )
+    assert resp.status_code == 201
+
+
+@pytest.mark.parametrize(
+    "addr,family",
+    [
+        ("127.0.0.1", socket.AF_INET),
+        ("10.0.0.5", socket.AF_INET),
+        ("169.254.169.254", socket.AF_INET),
+        ("::1", socket.AF_INET6),
+    ],
+)
+def test_create_rejects_internal_resolution_in_prod(
+    client, admin_user, login_as, monkeypatch, addr, family
+):
+    login_as(admin_user)
+    _enter_prod(monkeypatch)
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **kw: _addrinfo(addr, family))
+    resp = client.post(
+        "/api/webhooks",
+        json={
+            "name": "ssrf",
+            "target_url": "https://attacker.example.com/hook",
+            "event_types": ["firewatch.test"],
+        },
+    )
+    assert resp.status_code == 422
+    detail = resp.json()["detail"]
+    assert "private/internal IP" in detail
+    assert addr in detail
+
+
+@pytest.mark.parametrize("addr", ["127.0.0.1", "10.0.0.5", "169.254.169.254"])
+def test_create_accepts_internal_resolution_in_debug(
+    client, admin_user, login_as, monkeypatch, addr
+):
+    # DEBUG defaults to True via .env; no DNS check should happen at all.
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **kw: _addrinfo(addr))
+    login_as(admin_user)
+    resp = client.post(
+        "/api/webhooks",
+        json={
+            "name": "dev-internal",
+            "target_url": "https://internal.dev/hook",
+            "event_types": ["firewatch.test"],
+        },
+    )
+    assert resp.status_code == 201
+
+
+def test_create_rejects_dns_failure_in_prod_with_clean_422(
+    client, admin_user, login_as, monkeypatch
+):
+    login_as(admin_user)
+    _enter_prod(monkeypatch)
+
+    def boom(*args, **kwargs):
+        raise socket.gaierror("name does not resolve")
+
+    monkeypatch.setattr(socket, "getaddrinfo", boom)
+    resp = client.post(
+        "/api/webhooks",
+        json={
+            "name": "nxdomain",
+            "target_url": "https://no-such-host.example.invalid/hook",
+            "event_types": ["firewatch.test"],
+        },
+    )
+    assert resp.status_code == 422
+    assert "DNS resolution failed" in resp.json()["detail"]
+
+
+def test_patch_rejects_internal_url_in_prod(
+    client, admin_user, login_as, monkeypatch
+):
+    # Create in debug mode (any URL is fine), then flip to prod and try to PATCH
+    # the URL to one that resolves to a private IP — must be rejected.
+    login_as(admin_user)
+    created = _create(client)
+
+    _enter_prod(monkeypatch)
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **kw: _addrinfo("10.0.0.5"))
+    resp = client.patch(
+        f"/api/webhooks/{created['id']}",
+        json={"target_url": "https://internal.example.com/hook"},
+    )
+    assert resp.status_code == 422
+    assert "private/internal IP" in resp.json()["detail"]
+
+
+def test_create_accepts_public_https_url_end_to_end(
+    client, admin_user, login_as, monkeypatch
+):
+    login_as(admin_user)
+    _enter_prod(monkeypatch)
+    _public_dns(monkeypatch)
+    resp = client.post(
+        "/api/webhooks",
+        json={
+            "name": "public",
+            "target_url": "https://example.com/hook",
+            "event_types": ["firewatch.test"],
+        },
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["target_url"] == "https://example.com/hook"
+    assert body["secret"]
 
