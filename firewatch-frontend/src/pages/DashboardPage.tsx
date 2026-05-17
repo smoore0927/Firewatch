@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
+import { useAuth } from '@/context/AuthContext'
 import ExportReportDialog from '@/components/dashboard/ExportReportDialog'
 
 const SEVERITY_COLORS: Record<Severity, string> = {
@@ -38,6 +39,9 @@ function cellColor(score: number): string {
 }
 
 export default function DashboardPage() {
+  const { user } = useAuth()
+  const scopeLabel = user?.role === 'risk_owner' ? 'Showing your risks' : 'Showing all risks'
+
   const [summary, setSummary] = useState<DashboardSummary | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -85,6 +89,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight mb-1">Dashboard</h1>
           <p className="text-muted-foreground text-sm">Risk register overview</p>
+          <p className="text-sm text-muted-foreground">{scopeLabel}</p>
         </div>
         <Button
           type="button"

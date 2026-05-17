@@ -30,9 +30,13 @@ from app.models.database import Base
 # Alembic Config object — gives access to alembic.ini values
 config = context.config
 
-# Set up Python logging from the alembic.ini [loggers] section
+# Set up Python logging from the alembic.ini [loggers] section.
+# `disable_existing_loggers=False` is critical: when env.py runs inside the
+# FastAPI lifespan, the default (True) silently disables every logger the
+# app already created (e.g. app.services.sso_service), making downstream
+# warnings invisible to handlers like pytest's caplog.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # The metadata Alembic diffs against to detect schema changes
 target_metadata = Base.metadata

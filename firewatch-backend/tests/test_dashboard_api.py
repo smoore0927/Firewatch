@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
-from app.models.risk import Risk, RiskAssessment, RiskStatus
+from app.models.risk import (
+    Risk,
+    RiskAssessment,
+    RiskResponse,
+    RiskStatus,
+    ResponseStatus,
+    ResponseType,
+)
 
 
 def _create_risk(client, **overrides) -> dict:
@@ -293,3 +300,199 @@ def test_score_totals_by_severity_filters_by_date_range(
     assert len(points) == 1
     assert points[0]["date"] == "2026-05-10"
     assert points[0]["medium"] == 9
+
+
+# --- Role-based scoping (risk_owner) ------------------------------------------
+
+
+def _seed_owner_dataset(db, *, owner_a, owner_b):
+    """Seed 2 risks for owner_a and 3 risks for owner_b, each with one assessment.
+
+    Owner_a gets one risk with an overdue review and one risk with an overdue
+    RiskResponse so we can verify both overdue counters scope correctly.
+    Owner_b gets parallel-but-different data so isolation is observable.
+
+    All assessments are dated 2026-05-10 so a single date-range covers both.
+    """
+    assessed_at = datetime(2026, 5, 10, 12, 0, tzinfo=timezone.utc)
+    today = date.today()
+
+    # Owner A — 2 risks. One overdue review, one with an overdue RiskResponse.
+    a_overdue_review = _seed_risk_with_assessment(
+        db, owner=owner_a, score=8, assessed_at=assessed_at
+    )
+    a_overdue_review.next_review_date = today - timedelta(days=2)
+    a_overdue_review.status = RiskStatus.open
+    db.commit()
+
+    a_overdue_response_risk = _seed_risk_with_assessment(
+        db, owner=owner_a, score=15, assessed_at=assessed_at
+    )
+    db.add(RiskResponse(
+        risk_id=a_overdue_response_risk.id,
+        response_type=ResponseType.mitigate,
+        mitigation_strategy="A — overdue",
+        target_date=today - timedelta(days=3),
+        status=ResponseStatus.in_progress,
+    ))
+    db.commit()
+
+    # Owner B — 3 risks. Different overdue review count + different responses.
+    b_risks = [
+        _seed_risk_with_assessment(db, owner=owner_b, score=4, assessed_at=assessed_at),
+        _seed_risk_with_assessment(db, owner=owner_b, score=10, assessed_at=assessed_at),
+        _seed_risk_with_assessment(db, owner=owner_b, score=22, assessed_at=assessed_at),
+    ]
+    # Two overdue reviews for B (different number from A).
+    for r in b_risks[:2]:
+        r.next_review_date = today - timedelta(days=1)
+        r.status = RiskStatus.open
+    db.commit()
+    # And one overdue response for B (different risk).
+    db.add(RiskResponse(
+        risk_id=b_risks[2].id,
+        response_type=ResponseType.mitigate,
+        mitigation_strategy="B — overdue",
+        target_date=today - timedelta(days=5),
+        status=ResponseStatus.planned,
+    ))
+    # And one completed (NOT overdue) response on owner A's data to verify the
+    # status filter still excludes completed regardless of scope.
+    db.add(RiskResponse(
+        risk_id=a_overdue_response_risk.id,
+        response_type=ResponseType.mitigate,
+        mitigation_strategy="A — completed",
+        target_date=today - timedelta(days=10),
+        status=ResponseStatus.completed,
+    ))
+    db.commit()
+
+
+def test_summary_scoped_to_risk_owner_a(client, owner_user, owner_user_b, login_as, db):
+    _seed_owner_dataset(db, owner_a=owner_user, owner_b=owner_user_b)
+    login_as(owner_user)
+    resp = client.get("/api/dashboard/summary")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 2
+    # Owner A's matrix sums equal owner A's risk count.
+    matrix_sum = sum(sum(row) for row in body["risk_matrix"])
+    assert matrix_sum == 2
+    # Severity buckets sum to 2 as well (no unscored risks for A).
+    assert sum(body["by_severity"].values()) == 2
+    assert body["by_severity"]["Unscored"] == 0
+    # Exactly one overdue review and one overdue response for owner A.
+    assert body["overdue_reviews"] == 1
+    assert body["overdue_responses"] == 1
+
+
+def test_summary_scoped_to_risk_owner_b(client, owner_user, owner_user_b, login_as, db):
+    _seed_owner_dataset(db, owner_a=owner_user, owner_b=owner_user_b)
+    login_as(owner_user_b)
+    resp = client.get("/api/dashboard/summary")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 3
+    matrix_sum = sum(sum(row) for row in body["risk_matrix"])
+    assert matrix_sum == 3
+    assert sum(body["by_severity"].values()) == 3
+    assert body["by_severity"]["Unscored"] == 0
+    assert body["overdue_reviews"] == 2
+    assert body["overdue_responses"] == 1
+
+
+def test_summary_admin_sees_everyones_risks(
+    client, admin_user, owner_user, owner_user_b, login_as, db
+):
+    _seed_owner_dataset(db, owner_a=owner_user, owner_b=owner_user_b)
+    login_as(admin_user)
+    resp = client.get("/api/dashboard/summary")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 5  # 2 + 3
+    matrix_sum = sum(sum(row) for row in body["risk_matrix"])
+    assert matrix_sum == 5
+    assert body["overdue_reviews"] == 3   # 1 (A) + 2 (B)
+    assert body["overdue_responses"] == 2  # 1 (A) + 1 (B)
+
+
+def test_summary_analyst_sees_everyones_risks(
+    client, analyst_user, owner_user, owner_user_b, login_as, db
+):
+    _seed_owner_dataset(db, owner_a=owner_user, owner_b=owner_user_b)
+    login_as(analyst_user)
+    resp = client.get("/api/dashboard/summary")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 5
+
+
+def test_score_history_scoped_by_role(
+    client, admin_user, owner_user, owner_user_b, login_as, db
+):
+    _seed_owner_dataset(db, owner_a=owner_user, owner_b=owner_user_b)
+    params = {"start": "2026-05-01", "end": "2026-05-31"}
+
+    login_as(owner_user)
+    resp = client.get("/api/dashboard/score-history", params=params)
+    assert resp.status_code == 200
+    points = resp.json()["points"]
+    assert len(points) == 1
+    assert points[0]["count"] == 2  # owner A's 2 assessments
+
+    login_as(owner_user_b)
+    resp = client.get("/api/dashboard/score-history", params=params)
+    assert resp.status_code == 200
+    points = resp.json()["points"]
+    assert len(points) == 1
+    assert points[0]["count"] == 3  # owner B's 3 assessments
+
+    login_as(admin_user)
+    resp = client.get("/api/dashboard/score-history", params=params)
+    assert resp.status_code == 200
+    points = resp.json()["points"]
+    assert len(points) == 1
+    assert points[0]["count"] == 5  # all assessments
+
+
+def test_score_totals_by_severity_scoped_by_role(
+    client, admin_user, owner_user, owner_user_b, login_as, db
+):
+    _seed_owner_dataset(db, owner_a=owner_user, owner_b=owner_user_b)
+    params = {"start": "2026-05-01", "end": "2026-05-31"}
+
+    # Owner A: scores 8 (medium) + 15 (high)
+    login_as(owner_user)
+    resp = client.get("/api/dashboard/score-totals-by-severity", params=params)
+    assert resp.status_code == 200
+    points = resp.json()["points"]
+    assert len(points) == 1
+    p = points[0]
+    assert p["low"] == 0
+    assert p["medium"] == 8
+    assert p["high"] == 15
+    assert p["critical"] == 0
+
+    # Owner B: scores 4 (low) + 10 (medium) + 22 (critical)
+    login_as(owner_user_b)
+    resp = client.get("/api/dashboard/score-totals-by-severity", params=params)
+    assert resp.status_code == 200
+    points = resp.json()["points"]
+    assert len(points) == 1
+    p = points[0]
+    assert p["low"] == 4
+    assert p["medium"] == 10
+    assert p["high"] == 0
+    assert p["critical"] == 22
+
+    # Admin: sum of everything
+    login_as(admin_user)
+    resp = client.get("/api/dashboard/score-totals-by-severity", params=params)
+    assert resp.status_code == 200
+    points = resp.json()["points"]
+    assert len(points) == 1
+    p = points[0]
+    assert p["low"] == 4
+    assert p["medium"] == 18  # 8 + 10
+    assert p["high"] == 15
+    assert p["critical"] == 22
