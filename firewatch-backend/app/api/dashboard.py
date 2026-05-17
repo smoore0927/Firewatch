@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user, get_db
+from app.core.roles import UserRole
 from app.models.user import User
 from app.schemas.dashboard import (
     DashboardSummaryResponse,
@@ -23,12 +24,17 @@ from app.services.dashboard_service import (
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 
+def _scope_owner_id(user: User) -> int | None:
+    """Return the user's id when they should be scoped to their own risks, else None."""
+    return user.id if user.role == UserRole.risk_owner else None
+
+
 @router.get("/summary")
 def get_dashboard_summary(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> DashboardSummaryResponse:
-    return build_summary(db)
+    return build_summary(db, scope_owner_id=_scope_owner_id(current_user))
 
 
 @router.get("/score-history")
@@ -38,7 +44,7 @@ def get_score_history(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> ScoreHistoryResponse:
-    return build_score_history(db, start, end)
+    return build_score_history(db, start, end, scope_owner_id=_scope_owner_id(current_user))
 
 
 @router.get("/score-totals-by-severity")
@@ -48,4 +54,6 @@ def get_score_totals_by_severity(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> ScoreTotalsBySeverityResponse:
-    return build_score_totals_by_severity(db, start, end)
+    return build_score_totals_by_severity(
+        db, start, end, scope_owner_id=_scope_owner_id(current_user)
+    )

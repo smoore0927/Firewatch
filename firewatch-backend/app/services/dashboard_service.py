@@ -17,15 +17,23 @@ from app.schemas.dashboard import (
 )
 
 
-def build_summary(db: Session) -> DashboardSummaryResponse:
-    total = db.query(func.count(Risk.id)).filter(Risk.deleted_at.is_(None)).scalar()
+def build_summary(
+    db: Session,
+    *,
+    scope_owner_id: int | None = None,
+) -> DashboardSummaryResponse:
+    total_q = db.query(func.count(Risk.id)).filter(Risk.deleted_at.is_(None))
+    if scope_owner_id is not None:
+        total_q = total_q.filter(Risk.owner_id == scope_owner_id)
+    total = total_q.scalar()
 
-    status_rows = (
+    status_q = (
         db.query(Risk.status, func.count(Risk.id))
         .filter(Risk.deleted_at.is_(None))
-        .group_by(Risk.status)
-        .all()
     )
+    if scope_owner_id is not None:
+        status_q = status_q.filter(Risk.owner_id == scope_owner_id)
+    status_rows = status_q.group_by(Risk.status).all()
     by_status: dict[str, int] = {
         "open": 0,
         "in_progress": 0,
@@ -44,7 +52,7 @@ def build_summary(db: Session) -> DashboardSummaryResponse:
         .group_by(RiskAssessment.risk_id)
         .subquery()
     )
-    matrix_rows = (
+    matrix_q = (
         db.query(
             RiskAssessment.likelihood,
             RiskAssessment.impact,
@@ -57,9 +65,10 @@ def build_summary(db: Session) -> DashboardSummaryResponse:
         )
         .join(Risk, Risk.id == RiskAssessment.risk_id)
         .filter(Risk.deleted_at.is_(None))
-        .group_by(RiskAssessment.likelihood, RiskAssessment.impact)
-        .all()
     )
+    if scope_owner_id is not None:
+        matrix_q = matrix_q.filter(Risk.owner_id == scope_owner_id)
+    matrix_rows = matrix_q.group_by(RiskAssessment.likelihood, RiskAssessment.impact).all()
     by_severity: dict[str, int] = {
         "Critical": 0,
         "High": 0,
@@ -81,30 +90,48 @@ def build_summary(db: Session) -> DashboardSummaryResponse:
         else:
             by_severity["Critical"] += count
 
-    scored_risk_ids = db.query(RiskAssessment.risk_id).distinct()
-    by_severity["Unscored"] = (
+    if scope_owner_id is not None:
+        scored_risk_ids = (
+            db.query(RiskAssessment.risk_id)
+            .join(Risk, Risk.id == RiskAssessment.risk_id)
+            .filter(Risk.owner_id == scope_owner_id)
+            .distinct()
+        )
+    else:
+        scored_risk_ids = db.query(RiskAssessment.risk_id).distinct()
+    unscored_q = (
         db.query(func.count(Risk.id))
         .filter(Risk.deleted_at.is_(None))
         .filter(Risk.id.not_in(scored_risk_ids))
-        .scalar()
     )
+    if scope_owner_id is not None:
+        unscored_q = unscored_q.filter(Risk.owner_id == scope_owner_id)
+    by_severity["Unscored"] = unscored_q.scalar()
 
-    overdue_responses = (
+    overdue_responses_q = (
         db.query(func.count(RiskResponse.id))
         .filter(RiskResponse.target_date.isnot(None))
         .filter(RiskResponse.target_date < date.today())
         .filter(RiskResponse.status != ResponseStatus.completed)
-        .scalar()
     )
+    if scope_owner_id is not None:
+        overdue_responses_q = (
+            overdue_responses_q.join(Risk, Risk.id == RiskResponse.risk_id)
+            .filter(Risk.owner_id == scope_owner_id)
+            .filter(Risk.deleted_at.is_(None))
+        )
+    overdue_responses = overdue_responses_q.scalar()
 
-    overdue_reviews = (
+    overdue_reviews_q = (
         db.query(func.count(Risk.id))
         .filter(Risk.deleted_at.is_(None))
         .filter(Risk.next_review_date.isnot(None))
         .filter(Risk.next_review_date <= date.today())
         .filter(Risk.status.notin_([RiskStatus.closed, RiskStatus.mitigated]))
-        .scalar()
     )
+    if scope_owner_id is not None:
+        overdue_reviews_q = overdue_reviews_q.filter(Risk.owner_id == scope_owner_id)
+    overdue_reviews = overdue_reviews_q.scalar()
 
     return DashboardSummaryResponse(
         total=total,
@@ -116,11 +143,17 @@ def build_summary(db: Session) -> DashboardSummaryResponse:
     )
 
 
-def build_score_history(db: Session, start: date, end: date) -> ScoreHistoryResponse:
+def build_score_history(
+    db: Session,
+    start: date,
+    end: date,
+    *,
+    scope_owner_id: int | None = None,
+) -> ScoreHistoryResponse:
     start_dt = datetime.combine(start, time.min, tzinfo=timezone.utc)
     end_dt = datetime.combine(end, time.max, tzinfo=timezone.utc)
 
-    rows = (
+    query = (
         db.query(
             func.date(RiskAssessment.assessed_at).label("day"),
             func.avg(RiskAssessment.risk_score).label("avg_score"),
@@ -130,7 +163,11 @@ def build_score_history(db: Session, start: date, end: date) -> ScoreHistoryResp
         .filter(Risk.deleted_at.is_(None))
         .filter(RiskAssessment.assessed_at >= start_dt)
         .filter(RiskAssessment.assessed_at <= end_dt)
-        .group_by(func.date(RiskAssessment.assessed_at))
+    )
+    if scope_owner_id is not None:
+        query = query.filter(Risk.owner_id == scope_owner_id)
+    rows = (
+        query.group_by(func.date(RiskAssessment.assessed_at))
         .order_by(func.date(RiskAssessment.assessed_at))
         .all()
     )
@@ -144,7 +181,11 @@ def build_score_history(db: Session, start: date, end: date) -> ScoreHistoryResp
 
 
 def build_score_totals_by_severity(
-    db: Session, start: date, end: date
+    db: Session,
+    start: date,
+    end: date,
+    *,
+    scope_owner_id: int | None = None,
 ) -> ScoreTotalsBySeverityResponse:
     start_dt = datetime.combine(start, time.min, tzinfo=timezone.utc)
     end_dt = datetime.combine(end, time.max, tzinfo=timezone.utc)
@@ -166,7 +207,7 @@ def build_score_totals_by_severity(
     )
     critical_sum = func.sum(case((RiskAssessment.risk_score > 20, RiskAssessment.risk_score), else_=0))
 
-    rows = (
+    query = (
         db.query(
             func.date(RiskAssessment.assessed_at).label("day"),
             low_sum.label("low"),
@@ -178,7 +219,11 @@ def build_score_totals_by_severity(
         .filter(Risk.deleted_at.is_(None))
         .filter(RiskAssessment.assessed_at >= start_dt)
         .filter(RiskAssessment.assessed_at <= end_dt)
-        .group_by(func.date(RiskAssessment.assessed_at))
+    )
+    if scope_owner_id is not None:
+        query = query.filter(Risk.owner_id == scope_owner_id)
+    rows = (
+        query.group_by(func.date(RiskAssessment.assessed_at))
         .order_by(func.date(RiskAssessment.assessed_at))
         .all()
     )
