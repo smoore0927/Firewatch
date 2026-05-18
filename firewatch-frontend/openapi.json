@@ -572,6 +572,136 @@
         "title": "Body_import_risks_api_risks_import_post",
         "type": "object"
       },
+      "BulkReassignRequest": {
+        "properties": {
+          "owner_id": {
+            "title": "Owner Id",
+            "type": "integer"
+          },
+          "risk_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Risk Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "risk_ids",
+          "owner_id"
+        ],
+        "title": "BulkReassignRequest",
+        "type": "object"
+      },
+      "BulkRescoreRequest": {
+        "properties": {
+          "impact": {
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Impact",
+            "type": "integer"
+          },
+          "likelihood": {
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Likelihood",
+            "type": "integer"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "risk_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Risk Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "risk_ids",
+          "likelihood",
+          "impact"
+        ],
+        "title": "BulkRescoreRequest",
+        "type": "object"
+      },
+      "BulkRiskError": {
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "risk_id": {
+            "title": "Risk Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "risk_id",
+          "message"
+        ],
+        "title": "BulkRiskError",
+        "type": "object"
+      },
+      "BulkRiskResult": {
+        "properties": {
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/BulkRiskError"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "updated": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Updated",
+            "type": "array"
+          }
+        },
+        "required": [
+          "updated",
+          "errors"
+        ],
+        "title": "BulkRiskResult",
+        "type": "object"
+      },
+      "BulkStatusRequest": {
+        "properties": {
+          "risk_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Risk Ids",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RiskStatus"
+          }
+        },
+        "required": [
+          "risk_ids",
+          "status"
+        ],
+        "title": "BulkStatusRequest",
+        "type": "object"
+      },
       "ChangePasswordRequest": {
         "properties": {
           "current_password": {
@@ -4496,6 +4626,186 @@
           }
         },
         "summary": "Create Risk",
+        "tags": [
+          "Risks"
+        ]
+      }
+    },
+    "/api/risks/bulk/reassign": {
+      "post": {
+        "description": "Reassign owner_id on multiple risks. Admin/analyst only.",
+        "operationId": "bulk_reassign_api_risks_bulk_reassign_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkReassignRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkRiskResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bulk Reassign",
+        "tags": [
+          "Risks"
+        ]
+      }
+    },
+    "/api/risks/bulk/rescore": {
+      "post": {
+        "description": "Append a new assessment (likelihood/impact) to multiple risks.",
+        "operationId": "bulk_rescore_api_risks_bulk_rescore_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkRescoreRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkRiskResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bulk Rescore",
+        "tags": [
+          "Risks"
+        ]
+      }
+    },
+    "/api/risks/bulk/status": {
+      "post": {
+        "description": "Change status on multiple risks. Per-risk ownership enforced by the service.",
+        "operationId": "bulk_status_api_risks_bulk_status_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkStatusRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkRiskResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bulk Status",
         "tags": [
           "Risks"
         ]

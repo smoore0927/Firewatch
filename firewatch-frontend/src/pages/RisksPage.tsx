@@ -13,16 +13,19 @@
  *   For a small risk register (<500 items) client-side is simpler and instant.
  *   When the register grows, swap the filter/sort state into API query params.
  */
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { risksApi, ApiError } from '@/services/api'
 import { currentScore, scoreLabel } from '@/types'
-import type { Risk, RiskStatus } from '@/types'
+import type { BulkRiskResult, Risk, RiskStatus } from '@/types'
 import { Badge, scoreToBadgeVariant } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import ImportRisksDialog from '@/components/risks/ImportRisksDialog'
-import { ShieldAlert, ArrowUpDown, Plus, Download, Upload } from 'lucide-react'
+import BulkReassignDialog from '@/components/risks/BulkReassignDialog'
+import BulkCloseDialog from '@/components/risks/BulkCloseDialog'
+import BulkRescoreDialog from '@/components/risks/BulkRescoreDialog'
+import { ShieldAlert, ArrowUpDown, Plus, Download, Upload, X } from 'lucide-react'
 
 // ---- Types ------------------------------------------------------------------
 
@@ -78,6 +81,15 @@ export default function RisksPage() {
   const [exportError, setExportError] = useState<string | null>(null)
   const [importOpen, setImportOpen] = useState(false)
 
+  // Bulk action state — selection keyed by risk_id (RISK-NNN), since that's
+  // what the bulk endpoints accept.
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [reassignOpen, setReassignOpen] = useState(false)
+  const [closeOpen, setCloseOpen] = useState(false)
+  const [rescoreOpen, setRescoreOpen] = useState(false)
+  const [bulkBanner, setBulkBanner] = useState<{ message: string; details: BulkRiskResult['errors'] } | null>(null)
+  const bannerTimerRef = useRef<number | null>(null)
+
   const loadRisks = useCallback(() => {
     setIsLoading(true)
     risksApi.list(dueForReviewOnly ? { due_for_review: true } : undefined)
@@ -99,6 +111,41 @@ export default function RisksPage() {
 
   // Re-fetch whenever the due-for-review toggle changes.
   useEffect(() => { loadRisks() }, [loadRisks])
+
+  // Clear selection when the visible set changes underneath the user.
+  useEffect(() => { setSelected(new Set()) }, [dueForReviewOnly, statusFilter])
+
+  // Clean up any pending banner-dismiss timer on unmount.
+  useEffect(() => () => {
+    if (bannerTimerRef.current !== null) window.clearTimeout(bannerTimerRef.current)
+  }, [])
+
+  function showBulkBanner(result: BulkRiskResult) {
+    const updated = result.updated.length
+    const failed = result.errors.length
+    const message =
+      failed > 0
+        ? `Updated ${updated} risk${updated === 1 ? '' : 's'} · ${failed} failed`
+        : `Updated ${updated} risk${updated === 1 ? '' : 's'}`
+    setBulkBanner({ message, details: result.errors })
+    if (bannerTimerRef.current !== null) window.clearTimeout(bannerTimerRef.current)
+    bannerTimerRef.current = window.setTimeout(() => setBulkBanner(null), 5000)
+  }
+
+  function handleBulkDone(result: BulkRiskResult) {
+    showBulkBanner(result)
+    setSelected(new Set())
+    loadRisks()
+  }
+
+  function toggleSelected(riskId: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(riskId)) next.delete(riskId)
+      else next.add(riskId)
+      return next
+    })
+  }
 
   async function handleExport() {
     setIsExporting(true)
@@ -135,6 +182,25 @@ export default function RisksPage() {
   // Only admin and security_analyst can create risks
   const canCreate =
     user?.role === 'admin' || user?.role === 'security_analyst'
+
+  // Executive viewers can't edit anything. The bulk action bar is hidden for them.
+  const canEdit = user?.role !== 'executive_viewer'
+  // Reassign requires admin or security_analyst — backend enforces; UI hides.
+  const canReassign =
+    user?.role === 'admin' || user?.role === 'security_analyst'
+
+  // Select-all checkbox helpers — operate on the currently visible (filtered + sorted) set.
+  const visibleIds = useMemo(() => displayedRisks.map((r) => r.risk_id), [displayedRisks])
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id))
+  const someVisibleSelected = visibleIds.some((id) => selected.has(id)) && !allVisibleSelected
+
+  function toggleSelectAllVisible() {
+    if (allVisibleSelected) {
+      setSelected(new Set())
+    } else {
+      setSelected(new Set(visibleIds))
+    }
+  }
 
   // ---- Render ---------------------------------------------------------------
 
@@ -203,6 +269,64 @@ export default function RisksPage() {
         onImported={loadRisks}
       />
 
+      {/* Bulk action banner — shown after a bulk action completes. */}
+      {bulkBanner && (
+        <div className="rounded-md border bg-muted/40 px-4 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-sm font-medium">{bulkBanner.message}</p>
+            <button
+              type="button"
+              onClick={() => setBulkBanner(null)}
+              className="text-muted-foreground hover:text-foreground"
+              aria-label="Dismiss"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          {bulkBanner.details.length > 0 && (
+            <ul className="mt-2 max-h-24 overflow-y-auto text-xs text-muted-foreground space-y-0.5">
+              {bulkBanner.details.slice(0, 5).map((e, i) => (
+                <li key={`${e.risk_id}-${i}`} className="font-mono">
+                  {e.risk_id}: {e.message}
+                </li>
+              ))}
+              {bulkBanner.details.length > 5 && (
+                <li className="italic">…and {bulkBanner.details.length - 5} more</li>
+              )}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* Bulk action bar — visible only when at least one risk is selected. */}
+      {canEdit && selected.size > 0 && (
+        <div className="flex items-center justify-between rounded-md border bg-accent/40 px-4 py-2">
+          <div className="flex items-center gap-3 text-sm">
+            <span className="font-medium">{selected.size} selected</span>
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              className="text-xs text-muted-foreground hover:text-foreground underline"
+            >
+              Clear
+            </button>
+          </div>
+          <div className="flex gap-2">
+            {canReassign && (
+              <Button variant="outline" size="sm" onClick={() => setReassignOpen(true)}>
+                Reassign owner…
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={() => setCloseOpen(true)}>
+              Close…
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setRescoreOpen(true)}>
+              Re-score…
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Filter bar */}
       <div className="flex items-center gap-3">
         <label htmlFor="status-filter" className="text-sm font-medium">
@@ -260,6 +384,18 @@ export default function RisksPage() {
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-muted-foreground">
               <tr>
+                {canEdit && (
+                  <th className="px-4 py-3 text-left font-medium w-10">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all visible risks"
+                      checked={allVisibleSelected}
+                      ref={(el) => { if (el) el.indeterminate = someVisibleSelected }}
+                      onChange={toggleSelectAllVisible}
+                      className="h-4 w-4 rounded border-input text-primary focus:ring-2 focus:ring-ring"
+                    />
+                  </th>
+                )}
                 <th className="px-4 py-3 text-left font-medium w-28">ID</th>
 
                 {/* Sortable column header */}
@@ -280,6 +416,20 @@ export default function RisksPage() {
                     onClick={() => navigate(`/risks/${risk.risk_id}`)}
                     className="cursor-pointer hover:bg-muted/40 transition-colors"
                   >
+                    {canEdit && (
+                      <td
+                        className="px-4 py-3"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${risk.risk_id}`}
+                          checked={selected.has(risk.risk_id)}
+                          onChange={() => toggleSelected(risk.risk_id)}
+                          className="h-4 w-4 rounded border-input text-primary focus:ring-2 focus:ring-ring"
+                        />
+                      </td>
+                    )}
                     <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
                       {risk.risk_id}
                     </td>
@@ -330,6 +480,25 @@ export default function RisksPage() {
           </table>
         </div>
       )}
+
+      <BulkReassignDialog
+        open={reassignOpen}
+        riskIds={Array.from(selected)}
+        onClose={() => setReassignOpen(false)}
+        onDone={handleBulkDone}
+      />
+      <BulkCloseDialog
+        open={closeOpen}
+        riskIds={Array.from(selected)}
+        onClose={() => setCloseOpen(false)}
+        onDone={handleBulkDone}
+      />
+      <BulkRescoreDialog
+        open={rescoreOpen}
+        riskIds={Array.from(selected)}
+        onClose={() => setRescoreOpen(false)}
+        onDone={handleBulkDone}
+      />
     </div>
   )
 }

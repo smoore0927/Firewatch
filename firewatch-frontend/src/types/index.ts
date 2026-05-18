@@ -46,6 +46,12 @@ export type RiskUpdate = components['schemas']['RiskUpdate']
 export type ImportResultRow = components['schemas']['ImportResultRow']
 export type ImportResult = components['schemas']['ImportResult']
 
+export type BulkReassignRequest = components['schemas']['BulkReassignRequest']
+export type BulkStatusRequest = components['schemas']['BulkStatusRequest']
+export type BulkRescoreRequest = components['schemas']['BulkRescoreRequest']
+export type BulkRiskError = components['schemas']['BulkRiskError']
+export type BulkRiskResult = components['schemas']['BulkRiskResult']
+
 // -------------------------------------------------------------------------
 // Dashboard
 // -------------------------------------------------------------------------

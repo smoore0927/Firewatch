@@ -739,3 +739,207 @@ def test_updating_other_fields_does_not_emit_risk_assigned(
     )
     assert resp.status_code == 200
     assert "risk.assigned" not in captured
+
+
+# ---------------------------------------------------------------------------
+# Bulk action endpoints
+# ---------------------------------------------------------------------------
+
+
+def test_bulk_reassign_updates_multiple_risks(
+    client, admin_user, owner_user, login_as
+):
+    login_as(admin_user)
+    a = _create_risk(client, title="A", owner_id=admin_user.id)
+    b = _create_risk(client, title="B", owner_id=admin_user.id)
+    resp = client.post(
+        "/api/risks/bulk/reassign",
+        json={"risk_ids": [a["risk_id"], b["risk_id"]], "owner_id": owner_user.id},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert set(body["updated"]) == {a["risk_id"], b["risk_id"]}
+    assert body["errors"] == []
+    # Verify ownership actually changed
+    for rid in (a["risk_id"], b["risk_id"]):
+        got = client.get(f"/api/risks/{rid}").json()
+        assert got["owner_id"] == owner_user.id
+
+
+def test_bulk_reassign_captures_unknown_id_as_error(
+    client, admin_user, owner_user, login_as
+):
+    login_as(admin_user)
+    a = _create_risk(client, title="A", owner_id=admin_user.id)
+    resp = client.post(
+        "/api/risks/bulk/reassign",
+        json={"risk_ids": [a["risk_id"], "RISK-DOESNOTEXIST"], "owner_id": owner_user.id},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["updated"] == [a["risk_id"]]
+    assert len(body["errors"]) == 1
+    assert body["errors"][0]["risk_id"] == "RISK-DOESNOTEXIST"
+    assert "not found" in body["errors"][0]["message"].lower()
+
+
+def test_bulk_reassign_dedupes_risk_ids(
+    client, admin_user, owner_user, login_as
+):
+    login_as(admin_user)
+    a = _create_risk(client, title="A", owner_id=admin_user.id)
+    resp = client.post(
+        "/api/risks/bulk/reassign",
+        json={"risk_ids": [a["risk_id"], a["risk_id"]], "owner_id": owner_user.id},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["updated"] == [a["risk_id"]]
+    assert body["errors"] == []
+
+
+def test_bulk_reassign_as_owner_returns_403(
+    client, admin_user, owner_user, login_as
+):
+    login_as(admin_user)
+    a = _create_risk(client, title="A", owner_id=admin_user.id)
+    client.post("/api/auth/logout")
+    client.cookies.clear()
+    login_as(owner_user)
+    resp = client.post(
+        "/api/risks/bulk/reassign",
+        json={"risk_ids": [a["risk_id"]], "owner_id": owner_user.id},
+    )
+    assert resp.status_code == 403
+
+
+def test_bulk_reassign_rejects_too_many_ids(client, admin_user, login_as):
+    login_as(admin_user)
+    resp = client.post(
+        "/api/risks/bulk/reassign",
+        json={"risk_ids": [f"RISK-{i:03d}" for i in range(201)], "owner_id": admin_user.id},
+    )
+    assert resp.status_code == 422
+
+
+def test_bulk_reassign_empty_list_returns_422(client, admin_user, login_as):
+    login_as(admin_user)
+    resp = client.post(
+        "/api/risks/bulk/reassign",
+        json={"risk_ids": [], "owner_id": admin_user.id},
+    )
+    assert resp.status_code == 422
+
+
+def test_bulk_status_updates_multiple_risks(client, admin_user, login_as):
+    login_as(admin_user)
+    a = _create_risk(client, title="A")
+    b = _create_risk(client, title="B")
+    resp = client.post(
+        "/api/risks/bulk/status",
+        json={"risk_ids": [a["risk_id"], b["risk_id"]], "status": "in_progress"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert set(body["updated"]) == {a["risk_id"], b["risk_id"]}
+    assert body["errors"] == []
+    for rid in (a["risk_id"], b["risk_id"]):
+        got = client.get(f"/api/risks/{rid}").json()
+        assert got["status"] == "in_progress"
+
+
+def test_bulk_status_as_viewer_captures_per_risk_403(
+    client, admin_user, viewer_user, login_as
+):
+    login_as(admin_user)
+    a = _create_risk(client, title="A")
+    client.post("/api/auth/logout")
+    client.cookies.clear()
+    login_as(viewer_user)
+    resp = client.post(
+        "/api/risks/bulk/status",
+        json={"risk_ids": [a["risk_id"]], "status": "in_progress"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["updated"] == []
+    assert len(body["errors"]) == 1
+    assert body["errors"][0]["risk_id"] == a["risk_id"]
+    assert "read-only" in body["errors"][0]["message"].lower()
+
+
+def test_bulk_status_unknown_risk_id_captured(client, admin_user, login_as):
+    login_as(admin_user)
+    resp = client.post(
+        "/api/risks/bulk/status",
+        json={"risk_ids": ["RISK-NONE"], "status": "closed"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["updated"] == []
+    assert len(body["errors"]) == 1
+    assert body["errors"][0]["risk_id"] == "RISK-NONE"
+
+
+def test_bulk_rescore_creates_new_assessment_per_risk(
+    client, admin_user, login_as
+):
+    login_as(admin_user)
+    a = _create_risk(client, likelihood=2, impact=2)
+    b = _create_risk(client, likelihood=1, impact=1)
+    resp = client.post(
+        "/api/risks/bulk/rescore",
+        json={
+            "risk_ids": [a["risk_id"], b["risk_id"]],
+            "likelihood": 4,
+            "impact": 5,
+            "notes": "Post-incident reassessment",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert set(body["updated"]) == {a["risk_id"], b["risk_id"]}
+    assert body["errors"] == []
+    for rid in (a["risk_id"], b["risk_id"]):
+        got = client.get(f"/api/risks/{rid}").json()
+        latest = got["assessments"][0]
+        assert latest["likelihood"] == 4
+        assert latest["impact"] == 5
+        assert latest["risk_score"] == 20
+        assert latest["notes"] == "Post-incident reassessment"
+
+
+def test_bulk_rescore_rejects_out_of_range_score(client, admin_user, login_as):
+    login_as(admin_user)
+    a = _create_risk(client)
+    resp = client.post(
+        "/api/risks/bulk/rescore",
+        json={"risk_ids": [a["risk_id"]], "likelihood": 9, "impact": 9},
+    )
+    assert resp.status_code == 422
+
+
+def test_bulk_rescore_unknown_id_captured_as_error(client, admin_user, login_as):
+    login_as(admin_user)
+    a = _create_risk(client)
+    resp = client.post(
+        "/api/risks/bulk/rescore",
+        json={
+            "risk_ids": [a["risk_id"], "RISK-NOPE"],
+            "likelihood": 3,
+            "impact": 3,
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["updated"] == [a["risk_id"]]
+    assert len(body["errors"]) == 1
+    assert body["errors"][0]["risk_id"] == "RISK-NOPE"
+
+
+def test_bulk_routes_unauthenticated_returns_401(client):
+    resp = client.post(
+        "/api/risks/bulk/status",
+        json={"risk_ids": ["RISK-001"], "status": "open"},
+    )
+    assert resp.status_code == 401

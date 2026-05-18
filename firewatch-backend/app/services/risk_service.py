@@ -15,6 +15,7 @@ Pattern:
 
 import enum
 from datetime import date, datetime, timedelta, timezone
+from typing import Callable
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -338,3 +339,35 @@ class RiskService:
         risk = self._get_active_risk(risk_id)
         risk.deleted_at = datetime.now(timezone.utc)
         self.db.commit()
+
+    # -----------------------------------------------------------------------
+    # Bulk helper — drives per-risk iteration with per-item error capture
+    # -----------------------------------------------------------------------
+
+    def bulk_apply(
+        self, risk_ids: list[str], op: Callable[[str], None]
+    ) -> dict:
+        """
+        Iterate de-duplicated `risk_ids`, invoking `op(risk_id)` per id.
+        HTTPException → captured as an error row; other exceptions roll back
+        the session and propagate so the route returns 500.
+        """
+        seen: set[str] = set()
+        unique_ids: list[str] = []
+        for rid in risk_ids:
+            if rid not in seen:
+                seen.add(rid)
+                unique_ids.append(rid)
+
+        updated: list[str] = []
+        errors: list[dict] = []
+        for rid in unique_ids:
+            try:
+                op(rid)
+                updated.append(rid)
+            except HTTPException as exc:
+                errors.append({"risk_id": rid, "message": str(exc.detail)})
+            except Exception:
+                self.db.rollback()
+                raise
+        return {"updated": updated, "errors": errors}

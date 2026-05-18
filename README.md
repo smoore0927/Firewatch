@@ -11,6 +11,7 @@ A NIST 800-30 aligned cybersecurity risk register. Track risks, score them by li
 - **Settings page** — admin-only view of the full audit log with filters by action, user, resource type, and date range
 - **Dashboard** — summary cards, 5×5 risk matrix heatmap, and average score trend chart with date range filter
 - **Review cadence** — set a reassessment frequency on each risk; the dashboard surfaces risks past their next review date, and re-scoring auto-schedules the next review
+- **Bulk actions** — select multiple risks in the register and bulk reassign owner, bulk close, or bulk re-score in one operation; per-item error capture means a single failure doesn't abort the rest of the batch
 - **CSV import / export** — export the full risk register to CSV; download a pre-populated template and bulk-import risks from a spreadsheet
 - **Role-based access** — admin, security analyst, risk owner, and executive viewer roles
 - **SSO / OIDC login** — optional single sign-on via any OIDC-compliant provider (Google, Microsoft Entra, Okta, Auth0, Keycloak); email/password login continues to work alongside it
