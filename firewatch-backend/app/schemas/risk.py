@@ -190,3 +190,39 @@ class ImportResultRow(BaseModel):
 class ImportResult(BaseModel):
     created: int
     errors: list[ImportResultRow]
+
+
+# ---------------------------------------------------------------------------
+# Bulk action schemas
+# ---------------------------------------------------------------------------
+
+# Max number of risks accepted per bulk request — keeps each call bounded
+# and prevents accidental DoS via a huge id list.
+BULK_RISK_IDS_MAX = 200
+
+
+class BulkReassignRequest(BaseModel):
+    risk_ids: list[str] = Field(..., min_length=1, max_length=BULK_RISK_IDS_MAX)
+    owner_id: int
+
+
+class BulkStatusRequest(BaseModel):
+    risk_ids: list[str] = Field(..., min_length=1, max_length=BULK_RISK_IDS_MAX)
+    status: RiskStatus
+
+
+class BulkRescoreRequest(BaseModel):
+    risk_ids: list[str] = Field(..., min_length=1, max_length=BULK_RISK_IDS_MAX)
+    likelihood: int = Field(..., ge=1, le=5)
+    impact: int = Field(..., ge=1, le=5)
+    notes: Optional[str] = None
+
+
+class BulkRiskError(BaseModel):
+    risk_id: str
+    message: str
+
+
+class BulkRiskResult(BaseModel):
+    updated: list[str]
+    errors: list[BulkRiskError]

@@ -120,7 +120,7 @@ export const authApi = {
 // Risks
 // -------------------------------------------------------------------------
 
-import type { ApiKey, ApiKeyCreated, ApiKeyWithOwner, AuditLogListResponse, DashboardSummary, ImportResult, ResidualReductionResponse, Risk, RiskCreate, RiskListResponse, RiskReport, RiskUpdate, ScoreHistoryResponse, ScoreTotalsBySeverityResponse, Severity, User, UserRole, VelocityMTTMResponse, VelocityThroughputResponse, WebhookDeliveryList, WebhookSubscription, WebhookSubscriptionCreate, WebhookSubscriptionCreated, WebhookSubscriptionUpdate } from '@/types'
+import type { ApiKey, ApiKeyCreated, ApiKeyWithOwner, AuditLogListResponse, BulkReassignRequest, BulkRescoreRequest, BulkRiskResult, BulkStatusRequest, DashboardSummary, ImportResult, ResidualReductionResponse, Risk, RiskCreate, RiskListResponse, RiskReport, RiskUpdate, ScoreHistoryResponse, ScoreTotalsBySeverityResponse, Severity, User, UserRole, VelocityMTTMResponse, VelocityThroughputResponse, WebhookDeliveryList, WebhookSubscription, WebhookSubscriptionCreate, WebhookSubscriptionCreated, WebhookSubscriptionUpdate } from '@/types'
 
 // Parses a Content-Disposition header value to extract the filename.
 // Handles both `filename="x.csv"` and the RFC 5987 `filename*=UTF-8''x.csv` form.
@@ -249,6 +249,15 @@ export const risksApi = {
     if (!res.ok) await throwFromResponse(res)
     return res.json() as Promise<ImportResult>
   },
+
+  bulkReassign: (data: BulkReassignRequest) =>
+    request<BulkRiskResult>('/api/risks/bulk/reassign', { method: 'POST', body: JSON.stringify(data) }),
+
+  bulkSetStatus: (data: BulkStatusRequest) =>
+    request<BulkRiskResult>('/api/risks/bulk/status', { method: 'POST', body: JSON.stringify(data) }),
+
+  bulkRescore: (data: BulkRescoreRequest) =>
+    request<BulkRiskResult>('/api/risks/bulk/rescore', { method: 'POST', body: JSON.stringify(data) }),
 }
 
 // -------------------------------------------------------------------------

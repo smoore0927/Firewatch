@@ -29,6 +29,11 @@ from app.models.risk import RiskStatus
 from app.models.user import User, UserRole
 from app.schemas.risk import (
     AssessmentCreate,
+    BulkRescoreRequest,
+    BulkReassignRequest,
+    BulkRiskError,
+    BulkRiskResult,
+    BulkStatusRequest,
     ImportResult,
     ImportResultRow,
     ResponseCreate,
@@ -209,6 +214,113 @@ def import_risks(
     )
     db.commit()
     return result
+
+
+# ---------------------------------------------------------------------------
+# Bulk action routes — literal paths, must come before /{risk_id}
+# ---------------------------------------------------------------------------
+
+
+def _to_bulk_result(raw: dict) -> BulkRiskResult:
+    return BulkRiskResult(
+        updated=raw["updated"],
+        errors=[BulkRiskError(**e) for e in raw["errors"]],
+    )
+
+
+@router.post("/bulk/reassign")
+def bulk_reassign(
+    request: Request,
+    payload: BulkReassignRequest,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_role(UserRole.admin, UserRole.security_analyst))],
+) -> BulkRiskResult:
+    """Reassign owner_id on multiple risks. Admin/analyst only."""
+    service = RiskService(db)
+    update = RiskUpdate(owner_id=payload.owner_id)
+    raw = service.bulk_apply(
+        payload.risk_ids,
+        lambda rid: service.update_risk(risk_id=rid, risk_data=update, updated_by=current_user),
+    )
+    record_event(
+        db,
+        action="risk.bulk_reassigned",
+        user=current_user,
+        resource_type="risk",
+        request=request,
+        details={
+            "updated": len(raw["updated"]),
+            "errors": len(raw["errors"]),
+            "owner_id": payload.owner_id,
+        },
+    )
+    db.commit()
+    return _to_bulk_result(raw)
+
+
+@router.post("/bulk/status")
+def bulk_status(
+    request: Request,
+    payload: BulkStatusRequest,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> BulkRiskResult:
+    """Change status on multiple risks. Per-risk ownership enforced by the service."""
+    service = RiskService(db)
+    update = RiskUpdate(status=payload.status)
+    raw = service.bulk_apply(
+        payload.risk_ids,
+        lambda rid: service.update_risk(risk_id=rid, risk_data=update, updated_by=current_user),
+    )
+    record_event(
+        db,
+        action="risk.bulk_status_changed",
+        user=current_user,
+        resource_type="risk",
+        request=request,
+        details={
+            "updated": len(raw["updated"]),
+            "errors": len(raw["errors"]),
+            "status": payload.status.value,
+        },
+    )
+    db.commit()
+    return _to_bulk_result(raw)
+
+
+@router.post("/bulk/rescore")
+def bulk_rescore(
+    request: Request,
+    payload: BulkRescoreRequest,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> BulkRiskResult:
+    """Append a new assessment (likelihood/impact) to multiple risks."""
+    service = RiskService(db)
+    assessment = AssessmentCreate(
+        likelihood=payload.likelihood,
+        impact=payload.impact,
+        notes=payload.notes,
+    )
+    raw = service.bulk_apply(
+        payload.risk_ids,
+        lambda rid: service.add_assessment(risk_id=rid, data=assessment, assessed_by=current_user),
+    )
+    record_event(
+        db,
+        action="risk.bulk_rescored",
+        user=current_user,
+        resource_type="risk",
+        request=request,
+        details={
+            "updated": len(raw["updated"]),
+            "errors": len(raw["errors"]),
+            "likelihood": payload.likelihood,
+            "impact": payload.impact,
+        },
+    )
+    db.commit()
+    return _to_bulk_result(raw)
 
 
 # ---------------------------------------------------------------------------
