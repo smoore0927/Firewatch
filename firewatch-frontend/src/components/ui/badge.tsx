@@ -33,7 +33,7 @@ const badgeVariants = cva(
   },
 )
 
-type BadgeVariant = NonNullable<VariantProps<typeof badgeVariants>['variant']>
+export type BadgeVariant = NonNullable<VariantProps<typeof badgeVariants>['variant']>
 
 interface BadgeProps
   extends React.HTMLAttributes<HTMLSpanElement>,

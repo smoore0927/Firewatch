@@ -9,13 +9,14 @@
  *   5. Edit History — every commit with full field-level before/after, collapsible
  *   6. Responses    — mitigation plans
  */
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef, SyntheticEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { risksApi, usersApi, ApiError } from '@/services/api'
 import { currentScore, scoreLabel } from '@/types'
 import type { Risk, RiskAssessment, RiskHistory, RiskStatus, User } from '@/types'
 import { Badge, scoreToBadgeVariant } from '@/components/ui/badge'
+import type { BadgeVariant } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft, Pencil, Trash2, ArrowUp, ArrowDown, Minus, RefreshCw, ChevronDown, ChevronRight, X } from 'lucide-react'
 
@@ -27,6 +28,16 @@ const STATUS_LABELS: Record<RiskStatus, string> = {
   mitigated:   'Mitigated',
   accepted:    'Accepted',
   closed:      'Closed',
+}
+
+function statusVariant(val: string | null | undefined): BadgeVariant {
+  if (val && Object.prototype.hasOwnProperty.call(STATUS_LABELS, val)) return val as BadgeVariant
+  return 'default'
+}
+
+function statusLabel(val: string | null | undefined): string {
+  if (val && Object.prototype.hasOwnProperty.call(STATUS_LABELS, val)) return STATUS_LABELS[val as RiskStatus]
+  return val ?? ''
 }
 
 // Mirrors the badge variant classes so the inline status select inherits the
@@ -82,8 +93,12 @@ function groupByCommit(rows: RiskHistory[]): Map<string, RiskHistory[]> {
   // in the same db.commit() share an identical changed_at value.
   const map = new Map<string, RiskHistory[]>()
   for (const row of rows) {
-    if (!map.has(row.changed_at)) map.set(row.changed_at, [])
-    map.get(row.changed_at)!.push(row)
+    let group = map.get(row.changed_at)
+    if (!group) {
+      group = []
+      map.set(row.changed_at, group)
+    }
+    group.push(row)
   }
   return map
 }
@@ -121,7 +136,10 @@ function buildTimeline(risk: Risk): TimelineEntry[] {
       .map((r) => FIELD_LABELS[r.field_changed] ?? r.field_changed)
 
     // Status after this commit: prefer the new status from this batch, else carry forward.
-    const statusAtTime = (statusRow?.new_value as RiskStatus) ?? currentStatus
+    const statusAtTime: RiskStatus =
+      statusRow?.new_value && Object.prototype.hasOwnProperty.call(STATUS_LABELS, statusRow.new_value)
+        ? (statusRow.new_value as RiskStatus)
+        : currentStatus
 
     entries.push({
       kind: 'batch',
@@ -130,7 +148,9 @@ function buildTimeline(risk: Risk): TimelineEntry[] {
     })
 
     // Advance running state for the next iteration.
-    if (statusRow?.new_value) currentStatus = statusRow.new_value as RiskStatus
+    if (statusRow?.new_value && Object.prototype.hasOwnProperty.call(STATUS_LABELS, statusRow.new_value)) {
+      currentStatus = statusRow.new_value as RiskStatus
+    }
     if (assessment)           prevScore = assessment.risk_score
   }
 
@@ -158,16 +178,16 @@ function truncate(value: string | null | undefined, max = 80): string {
 
 // ---- Sub-components ---------------------------------------------------------
 
-function ScoreArrow({ score, prevScore }: { score: number; prevScore: number | null }) {
+function ScoreArrow({ score, prevScore }: Readonly<{ score: number; prevScore: number | null }>) {
   if (prevScore === null) return <Minus className="h-4 w-4 text-muted-foreground" />
   if (score > prevScore)  return <ArrowUp className="h-4 w-4 text-destructive" />
   if (score < prevScore)  return <ArrowDown className="h-4 w-4 text-green-600" />
   return <Minus className="h-4 w-4 text-muted-foreground" />
 }
 
-function Detail({ label, value, className }: {
+function Detail({ label, value, className }: Readonly<{
   label: string; value: string | null | undefined; className?: string
-}) {
+}>) {
   return (
     <div className={className}>
       <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{label}</dt>
@@ -175,6 +195,302 @@ function Detail({ label, value, className }: {
         {value ?? <span className="italic text-muted-foreground">Not set</span>}
       </dd>
     </div>
+  )
+}
+
+function ExpandChevron({ needsExpand, expanded }: Readonly<{ needsExpand: boolean; expanded: boolean }>) {
+  if (!needsExpand) return <span className="w-4" />
+  return expanded
+    ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
+    : <ChevronRight className="h-4 w-4 text-muted-foreground" />
+}
+
+function FieldChange({ change, onViewFull }: Readonly<{
+  change: RiskHistory
+  onViewFull: (change: RiskHistory) => void
+}>) {
+  const isTruncated =
+    (change.old_value?.length ?? 0) > 80 ||
+    (change.new_value?.length ?? 0) > 80
+  return (
+    <div className="space-y-0.5">
+      <p className="text-muted-foreground">
+        <span className="font-medium">Before: </span>
+        {truncate(change.old_value) || <em>Empty</em>}
+      </p>
+      <p className="text-muted-foreground">
+        <span className="font-medium">After: </span>
+        {truncate(change.new_value) || <em>Empty</em>}
+      </p>
+      {isTruncated && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onViewFull(change) }}
+          className="text-xs text-primary hover:underline mt-1"
+        >
+          View full content →
+        </button>
+      )}
+    </div>
+  )
+}
+
+function CommitDetail({ commit, onViewFull }: Readonly<{
+  commit: EditCommit
+  onViewFull: (change: RiskHistory) => void
+}>) {
+  return (
+    <ul className="border-t bg-muted/20 divide-y divide-border">
+      {commit.changes.map((change) => (
+        <li key={change.id} className="px-8 py-3 text-xs space-y-1">
+          <p className="font-medium text-foreground">
+            {FIELD_LABELS[change.field_changed] ?? change.field_changed}
+          </p>
+          {change.field_changed === 'status' ? (
+            <div className="flex items-center gap-2">
+              <Badge variant={statusVariant(change.old_value)}>
+                {statusLabel(change.old_value) || 'None'}
+              </Badge>
+              <span className="text-muted-foreground">to</span>
+              <Badge variant={statusVariant(change.new_value)}>
+                {statusLabel(change.new_value) || 'None'}
+              </Badge>
+            </div>
+          ) : (
+            <FieldChange change={change} onViewFull={onViewFull} />
+          )}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function BatchEntry({ entry, expandedCommits, editHistory, toggleCommit, onViewFull }: Readonly<{
+  entry: TimelineEntry
+  expandedCommits: Set<string>
+  editHistory: EditCommit[]
+  toggleCommit: (date: string) => void
+  onViewFull: (change: RiskHistory) => void
+}>) {
+  const needsExpand = entry.batch.otherFields.length > 0
+
+  const batchContent = (
+    <>
+      <div className="mt-0.5 shrink-0">
+        {entry.batch.assessment
+          ? <ScoreArrow score={entry.batch.assessment.risk_score} prevScore={entry.batch.prevScore} />
+          : <RefreshCw className="h-4 w-4 text-muted-foreground" />
+        }
+      </div>
+      <div className="flex-1 min-w-0 text-sm space-y-1">
+
+        {entry.batch.assessment && (
+          <div className="flex items-center gap-3 flex-wrap">
+            <Badge variant={scoreToBadgeVariant(entry.batch.assessment.risk_score)}>
+              {entry.batch.assessment.risk_score} — {scoreLabel(entry.batch.assessment.risk_score)}
+            </Badge>
+            <span className="text-muted-foreground text-xs">
+              {entry.batch.assessment.likelihood} (likelihood) × {entry.batch.assessment.impact} (impact)
+            </span>
+            {!entry.batch.statusChange && (
+              <Badge variant={entry.batch.statusAtTime}>
+                {STATUS_LABELS[entry.batch.statusAtTime]}
+              </Badge>
+            )}
+            {entry.batch.assessment.notes && (
+              <p className="w-full text-muted-foreground text-xs italic">
+                "{entry.batch.assessment.notes}"
+              </p>
+            )}
+          </div>
+        )}
+
+        {entry.batch.statusChange && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium text-sm">Status changed</span>
+            {entry.batch.statusChange.old_value && (
+              <>
+                <Badge variant={statusVariant(entry.batch.statusChange.old_value)}>
+                  {statusLabel(entry.batch.statusChange.old_value) || entry.batch.statusChange.old_value}
+                </Badge>
+                <span className="text-muted-foreground text-xs">to</span>
+              </>
+            )}
+            {entry.batch.statusChange.new_value && (
+              <Badge variant={statusVariant(entry.batch.statusChange.new_value)}>
+                {statusLabel(entry.batch.statusChange.new_value) || entry.batch.statusChange.new_value}
+              </Badge>
+            )}
+          </div>
+        )}
+
+        {entry.batch.otherFields.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            {(entry.batch.statusChange || entry.batch.assessment) ? 'Also updated: ' : 'Updated: '}
+            {entry.batch.otherFields.join(', ')}
+          </p>
+        )}
+
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <time className="text-xs text-muted-foreground">
+          {new Date(entry.date).toLocaleDateString()}
+        </time>
+        <ExpandChevron needsExpand={needsExpand} expanded={expandedCommits.has(entry.date)} />
+      </div>
+    </>
+  )
+
+  const commit = editHistory.find(c => c.date === entry.date)
+
+  return (
+    <>
+      {needsExpand ? (
+        <button
+          onClick={() => toggleCommit(entry.date)}
+          className="w-full flex items-start gap-4 px-5 py-4 hover:bg-muted/40 transition-colors text-left"
+        >
+          {batchContent}
+        </button>
+      ) : (
+        <div className="flex items-start gap-4 px-5 py-4">
+          {batchContent}
+        </div>
+      )}
+      {expandedCommits.has(entry.date) && commit && (
+        <CommitDetail commit={commit} onViewFull={onViewFull} />
+      )}
+    </>
+  )
+}
+
+function canEditRisk(user: User | null, risk: Risk | null): boolean {
+  return (
+    user?.role === 'admin' ||
+    user?.role === 'security_analyst' ||
+    (user?.role === 'risk_owner' && risk !== null && risk.owner_id === user.id)
+  )
+}
+
+function FullContentModal({ change, onClose }: Readonly<{
+  change: RiskHistory | null
+  onClose: () => void
+}>) {
+  const ref = useRef<HTMLDialogElement>(null)
+
+  useEffect(() => {
+    if (change) ref.current?.showModal()
+  }, [change])
+
+  if (!change) return null
+
+  return (
+    <dialog
+      ref={ref}
+      onClose={onClose}
+      className="bg-background rounded-lg border shadow-lg max-w-lg w-full mx-4 p-6 space-y-4 backdrop:bg-black/50"
+    >
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-sm">
+          {FIELD_LABELS[change.field_changed] ?? change.field_changed}
+        </h3>
+        <button
+          type="button"
+          onClick={() => ref.current?.close()}
+          className="text-muted-foreground hover:text-foreground"
+          aria-label="Close"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="space-y-3 text-sm">
+        <div>
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Before</p>
+          <p className="bg-muted/50 rounded p-3 whitespace-pre-wrap break-words text-foreground">
+            {change.old_value || <em className="text-muted-foreground">Empty</em>}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">After</p>
+          <p className="bg-muted/50 rounded p-3 whitespace-pre-wrap break-words text-foreground">
+            {change.new_value || <em className="text-muted-foreground">Empty</em>}
+          </p>
+        </div>
+      </div>
+    </dialog>
+  )
+}
+
+function DeleteConfirmDialog({
+  open,
+  isDeleting,
+  errorMessage,
+  riskId,
+  riskTitle,
+  onConfirm,
+  onClose,
+}: Readonly<{
+  open: boolean
+  isDeleting: boolean
+  errorMessage: string | null
+  riskId: string
+  riskTitle: string
+  onConfirm: () => void
+  onClose: () => void
+}>) {
+  const ref = useRef<HTMLDialogElement>(null)
+
+  useEffect(() => {
+    if (open) ref.current?.showModal()
+  }, [open])
+
+  function handleCancelEvent(e: SyntheticEvent<HTMLDialogElement>) {
+    if (isDeleting) e.preventDefault()
+  }
+
+  return (
+    <dialog
+      ref={ref}
+      aria-labelledby="delete-dialog-title"
+      onCancel={handleCancelEvent}
+      onClose={onClose}
+      className="bg-background rounded-lg border shadow-lg max-w-md w-full mx-4 p-6 space-y-4 backdrop:bg-black/50"
+    >
+      <h3 id="delete-dialog-title" className="font-semibold text-base">Delete this risk?</h3>
+      <div className="text-sm text-muted-foreground space-y-3">
+        <p>
+          Are you sure you want to delete{' '}
+          <span className="font-semibold text-foreground">
+            {riskId} — {riskTitle}
+          </span>?
+        </p>
+        <p>
+          This is a soft delete: the risk will be removed from the register
+          but its full history and audit trail are retained.
+        </p>
+      </div>
+      {errorMessage && (
+        <p className="text-sm text-destructive">{errorMessage}</p>
+      )}
+      <div className="flex justify-end gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={isDeleting}
+          onClick={() => ref.current?.close()}
+        >
+          Cancel
+        </Button>
+        <Button
+          variant="destructive"
+          size="sm"
+          disabled={isDeleting}
+          onClick={onConfirm}
+        >
+          {isDeleting ? 'Deleting…' : 'Delete'}
+        </Button>
+      </div>
+    </dialog>
   )
 }
 
@@ -204,10 +520,7 @@ export default function RiskDetailPage() {
       .finally(() => setIsLoading(false))
   }, [riskId])
 
-  const canEdit =
-    user?.role === 'admin' ||
-    user?.role === 'security_analyst' ||
-    (user?.role === 'risk_owner' && risk?.owner_id === user?.id)
+  const canEdit = canEditRisk(user, risk)
 
   const timeline    = useMemo(() => risk ? buildTimeline(risk)    : [], [risk])
   const editHistory = useMemo(() => risk ? buildEditHistory(risk.history) : [], [risk])
@@ -226,7 +539,7 @@ export default function RiskDetailPage() {
   useEffect(() => {
     usersApi.listAssignable()
       .then(setUsers)
-      .catch(() => {}) // 403 for non-editors — read-only fallback is fine
+      .catch(() => { /* 403 for non-editors — read-only fallback */ })
   }, [])
 
   // ---- Inline status change ----
@@ -234,9 +547,11 @@ export default function RiskDetailPage() {
 
   async function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
     if (!riskId) return
+    const newStatus = e.target.value
+    if (!Object.prototype.hasOwnProperty.call(STATUS_LABELS, newStatus)) return
     setIsSavingStatus(true)
     try {
-      await risksApi.update(riskId, { status: e.target.value as RiskStatus })
+      await risksApi.update(riskId, { status: newStatus as RiskStatus })
       loadRisk()
     } finally {
       setIsSavingStatus(false)
@@ -262,7 +577,7 @@ export default function RiskDetailPage() {
   const [isSavingAssessment, setIsSavingAssessment] = useState(false)
   const [assessForm, setAssessForm] = useState({ likelihood: '', impact: '', notes: '' })
 
-  async function handleAddAssessment(e: React.FormEvent) {
+  async function handleAddAssessment(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!riskId || !assessForm.likelihood || !assessForm.impact) return
     setIsSavingAssessment(true)
@@ -304,22 +619,14 @@ export default function RiskDetailPage() {
     }
   }
 
-  useEffect(() => {
-    if (!isDeleteOpen) return
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape' && !isDeleting) {
-        setIsDeleteOpen(false)
-        setDeleteError(null)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [isDeleteOpen, isDeleting])
-
   function toggleCommit(date: string) {
     setExpandedCommits((prev) => {
       const next = new Set(prev)
-      next.has(date) ? next.delete(date) : next.add(date)
+      if (next.has(date)) {
+        next.delete(date)
+      } else {
+        next.add(date)
+      }
       return next
     })
   }
@@ -386,7 +693,7 @@ export default function RiskDetailPage() {
                 </select>
               </div>
             ) : (
-              <Badge variant={risk.status as any}>{STATUS_LABELS[risk.status]}</Badge>
+              <Badge variant={risk.status}>{STATUS_LABELS[risk.status]}</Badge>
             )}
             {canEdit && (
               <Button size="sm" variant="outline" className="gap-2"
@@ -409,7 +716,11 @@ export default function RiskDetailPage() {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-4">
           Current Score
         </h2>
-        {score !== null ? (
+        {score === null ? (
+          <p className="text-sm text-muted-foreground italic">
+            No score yet — add one below.
+          </p>
+        ) : (
           <div className="flex items-center gap-6">
             <div className="text-center">
               <p className="text-4xl font-bold">{score}</p>
@@ -433,28 +744,18 @@ export default function RiskDetailPage() {
               )}
             </div>
           </div>
-        ) : (
-          <p className="text-sm text-muted-foreground italic">
-            No score yet — add one below.
-          </p>
         )}
 
         {/* Re-assess inline form — editors only */}
         {canEdit && (
           <div className="mt-4 pt-4 border-t">
-            {!isAssessing ? (
-              <button
-                onClick={() => setIsAssessing(true)}
-                className="text-xs text-primary hover:underline"
-              >
-                + Add assessment
-              </button>
-            ) : (
+            {isAssessing ? (
               <form onSubmit={handleAddAssessment} className="space-y-3" noValidate>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <label className="text-xs font-medium">Likelihood</label>
+                    <label htmlFor="assess-likelihood" className="text-xs font-medium">Likelihood</label>
                     <select
+                      id="assess-likelihood"
                       value={assessForm.likelihood}
                       onChange={(e) => setAssessForm((p) => ({ ...p, likelihood: e.target.value }))}
                       disabled={isSavingAssessment}
@@ -467,8 +768,9 @@ export default function RiskDetailPage() {
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs font-medium">Impact</label>
+                    <label htmlFor="assess-impact" className="text-xs font-medium">Impact</label>
                     <select
+                      id="assess-impact"
                       value={assessForm.impact}
                       onChange={(e) => setAssessForm((p) => ({ ...p, impact: e.target.value }))}
                       disabled={isSavingAssessment}
@@ -523,6 +825,13 @@ export default function RiskDetailPage() {
                   </Button>
                 </div>
               </form>
+            ) : (
+              <button
+                onClick={() => setIsAssessing(true)}
+                className="text-xs text-primary hover:underline"
+              >
+                + Add assessment
+              </button>
             )}
           </div>
         )}
@@ -585,158 +894,15 @@ export default function RiskDetailPage() {
             </p>
           </div>
           <ul className="divide-y divide-border">
-            {(timelineExpanded ? timeline : timeline.slice(0, TIMELINE_PREVIEW)).map((entry, i) => (
-              <li key={`${entry.date}-${i}`}>
-                {(() => {
-                  // A chevron is only needed when there are text field changes to reveal.
-                  // Score and status info is always visible inline — nothing to expand there.
-                  const needsExpand = entry.batch.otherFields.length > 0
-
-                  const batchContent = (
-                    <>
-                      <div className="mt-0.5 shrink-0">
-                        {entry.batch.assessment
-                          ? <ScoreArrow score={entry.batch.assessment.risk_score} prevScore={entry.batch.prevScore} />
-                          : <RefreshCw className="h-4 w-4 text-muted-foreground" />
-                        }
-                      </div>
-                      <div className="flex-1 min-w-0 text-sm space-y-1">
-
-                        {/* Score line — shown when this commit included a new assessment */}
-                        {entry.batch.assessment && (
-                          <div className="flex items-center gap-3 flex-wrap">
-                            <Badge variant={scoreToBadgeVariant(entry.batch.assessment.risk_score)}>
-                              {entry.batch.assessment.risk_score} — {scoreLabel(entry.batch.assessment.risk_score)}
-                            </Badge>
-                            <span className="text-muted-foreground text-xs">
-                              {entry.batch.assessment.likelihood} (likelihood) × {entry.batch.assessment.impact} (impact)
-                            </span>
-                            {/* Only show status badge here when there's no separate status-change line below */}
-                            {!entry.batch.statusChange && (
-                              <Badge variant={entry.batch.statusAtTime as any}>
-                                {STATUS_LABELS[entry.batch.statusAtTime]}
-                              </Badge>
-                            )}
-                            {entry.batch.assessment.notes && (
-                              <p className="w-full text-muted-foreground text-xs italic">
-                                "{entry.batch.assessment.notes}"
-                              </p>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Status change line */}
-                        {entry.batch.statusChange && (
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-medium text-sm">Status changed</span>
-                            {entry.batch.statusChange.old_value && (
-                              <>
-                                <Badge variant={entry.batch.statusChange.old_value as any}>
-                                  {STATUS_LABELS[entry.batch.statusChange.old_value as RiskStatus] ?? entry.batch.statusChange.old_value}
-                                </Badge>
-                                <span className="text-muted-foreground text-xs">to</span>
-                              </>
-                            )}
-                            {entry.batch.statusChange.new_value && (
-                              <Badge variant={entry.batch.statusChange.new_value as any}>
-                                {STATUS_LABELS[entry.batch.statusChange.new_value as RiskStatus] ?? entry.batch.statusChange.new_value}
-                              </Badge>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Text field changes — names only; full before/after lives in the expanded panel */}
-                        {entry.batch.otherFields.length > 0 && (
-                          <p className="text-xs text-muted-foreground">
-                            {(entry.batch.statusChange || entry.batch.assessment) ? 'Also updated: ' : 'Updated: '}
-                            {entry.batch.otherFields.join(', ')}
-                          </p>
-                        )}
-
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <time className="text-xs text-muted-foreground">
-                          {new Date(entry.date).toLocaleDateString()}
-                        </time>
-                        {needsExpand
-                          ? (expandedCommits.has(entry.date)
-                              ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                              : <ChevronRight className="h-4 w-4 text-muted-foreground" />)
-                          : <span className="w-4" />
-                        }
-                      </div>
-                    </>
-                  )
-
-                  return (
-                    <>
-                      {needsExpand ? (
-                        <button
-                          onClick={() => toggleCommit(entry.date)}
-                          className="w-full flex items-start gap-4 px-5 py-4 hover:bg-muted/40 transition-colors text-left"
-                        >
-                          {batchContent}
-                        </button>
-                      ) : (
-                        <div className="flex items-start gap-4 px-5 py-4">
-                          {batchContent}
-                        </div>
-                      )}
-
-                    {/* Expanded: full before/after for every changed field */}
-                    {expandedCommits.has(entry.date) && (() => {
-                      const commit = editHistory.find(c => c.date === entry.date)
-                      if (!commit) return null
-                      return (
-                        <ul className="border-t bg-muted/20 divide-y divide-border">
-                          {commit.changes.map((change) => (
-                            <li key={change.id} className="px-8 py-3 text-xs space-y-1">
-                              <p className="font-medium text-foreground">
-                                {FIELD_LABELS[change.field_changed] ?? change.field_changed}
-                              </p>
-                              {change.field_changed === 'status' ? (
-                                <div className="flex items-center gap-2">
-                                  <Badge variant={change.old_value as any}>
-                                    {STATUS_LABELS[change.old_value as RiskStatus] ?? change.old_value ?? 'None'}
-                                  </Badge>
-                                  <span className="text-muted-foreground">to</span>
-                                  <Badge variant={change.new_value as any}>
-                                    {STATUS_LABELS[change.new_value as RiskStatus] ?? change.new_value ?? 'None'}
-                                  </Badge>
-                                </div>
-                              ) : (() => {
-                                const isTruncated =
-                                  (change.old_value?.length ?? 0) > 80 ||
-                                  (change.new_value?.length ?? 0) > 80
-                                return (
-                                  <div className="space-y-0.5">
-                                    <p className="text-muted-foreground">
-                                      <span className="font-medium">Before: </span>
-                                      {truncate(change.old_value) || <em>Empty</em>}
-                                    </p>
-                                    <p className="text-muted-foreground">
-                                      <span className="font-medium">After: </span>
-                                      {truncate(change.new_value) || <em>Empty</em>}
-                                    </p>
-                                    {isTruncated && (
-                                      <button
-                                        onClick={(e) => { e.stopPropagation(); setSelectedChange(change) }}
-                                        className="text-xs text-primary hover:underline mt-1"
-                                      >
-                                        View full content →
-                                      </button>
-                                    )}
-                                  </div>
-                                )
-                              })()}
-                            </li>
-                          ))}
-                        </ul>
-                      )
-                    })()}
-                  </>
-                  )
-                })()}
+            {(timelineExpanded ? timeline : timeline.slice(0, TIMELINE_PREVIEW)).map((entry) => (
+              <li key={entry.date}>
+                <BatchEntry
+                  entry={entry}
+                  expandedCommits={expandedCommits}
+                  editHistory={editHistory}
+                  toggleCommit={toggleCommit}
+                  onViewFull={setSelectedChange}
+                />
               </li>
             ))}
           </ul>
@@ -764,7 +930,7 @@ export default function RiskDetailPage() {
               <li key={r.id} className="px-5 py-4 text-sm">
                 <div className="flex items-center gap-2 mb-1">
                   <Badge variant="outline" className="capitalize">{r.response_type}</Badge>
-                  <Badge variant={r.status as any} className="capitalize">{r.status.replace('_', ' ')}</Badge>
+                  <Badge variant={statusVariant(r.status)} className="capitalize">{r.status.replace('_', ' ')}</Badge>
                 </div>
                 <p>{r.mitigation_strategy}</p>
                 {r.target_date && (
@@ -780,104 +946,23 @@ export default function RiskDetailPage() {
 
     </div>
 
-    {/* ---- Full-content modal ---- */}
-    {/* Opens when a truncated text field change is clicked in an expanded commit.
-        The backdrop click closes it; the X button closes it.
-        e.stopPropagation() on the card prevents the backdrop from firing. */}
-    {selectedChange && (
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-        onClick={() => setSelectedChange(null)}
-      >
-        <div
-          className="bg-background rounded-lg border shadow-lg max-w-lg w-full mx-4 p-6 space-y-4"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold text-sm">
-              {FIELD_LABELS[selectedChange.field_changed] ?? selectedChange.field_changed}
-            </h3>
-            <button
-              onClick={() => setSelectedChange(null)}
-              className="text-muted-foreground hover:text-foreground"
-              aria-label="Close"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
+    <FullContentModal
+      change={selectedChange}
+      onClose={() => setSelectedChange(null)}
+    />
 
-          <div className="space-y-3 text-sm">
-            <div>
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Before</p>
-              <p className="bg-muted/50 rounded p-3 whitespace-pre-wrap break-words text-foreground">
-                {selectedChange.old_value || <em className="text-muted-foreground">Empty</em>}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">After</p>
-              <p className="bg-muted/50 rounded p-3 whitespace-pre-wrap break-words text-foreground">
-                {selectedChange.new_value || <em className="text-muted-foreground">Empty</em>}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    )}
-
-    {/* ---- Delete confirmation modal ---- */}
-    {isDeleteOpen && (
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-        onClick={() => {
-          if (isDeleting) return
-          setIsDeleteOpen(false)
-          setDeleteError(null)
-        }}
-      >
-        <div
-          className="bg-background rounded-lg border shadow-lg max-w-md w-full mx-4 p-6 space-y-4"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <h3 className="font-semibold text-base">Delete this risk?</h3>
-          <div className="text-sm text-muted-foreground space-y-3">
-            <p>
-              Are you sure you want to delete{' '}
-              <span className="font-semibold text-foreground">
-                {risk.risk_id} — {risk.title}
-              </span>?
-            </p>
-            <p>
-              This is a soft delete: the risk will be removed from the register
-              but its full history and audit trail are retained.
-            </p>
-          </div>
-          {deleteError && (
-            <p className="text-sm text-destructive">{deleteError}</p>
-          )}
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={isDeleting}
-              onClick={() => {
-                setIsDeleteOpen(false)
-                setDeleteError(null)
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              disabled={isDeleting}
-              onClick={handleDelete}
-            >
-              {isDeleting ? 'Deleting…' : 'Delete'}
-            </Button>
-          </div>
-        </div>
-      </div>
-    )}
+    <DeleteConfirmDialog
+      open={isDeleteOpen}
+      isDeleting={isDeleting}
+      errorMessage={deleteError}
+      riskId={risk.risk_id}
+      riskTitle={risk.title}
+      onConfirm={handleDelete}
+      onClose={() => {
+        setIsDeleteOpen(false)
+        setDeleteError(null)
+      }}
+    />
     </>
   )
 }

@@ -17,22 +17,43 @@ import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { risksApi, ApiError } from '@/services/api'
+import { CATEGORIES } from '@/lib/constants'
 import { currentScore, scoreLabel } from '@/types'
 import type { BulkRiskResult, Risk, RiskStatus } from '@/types'
 import { Badge, scoreToBadgeVariant } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import ImportRisksDialog from '@/components/risks/ImportRisksDialog'
 import BulkReassignDialog from '@/components/risks/BulkReassignDialog'
-import BulkCloseDialog from '@/components/risks/BulkCloseDialog'
+import BulkStatusDialog from '@/components/risks/BulkStatusDialog'
 import BulkRescoreDialog from '@/components/risks/BulkRescoreDialog'
-import { ShieldAlert, ArrowUpDown, Plus, Download, Upload, X } from 'lucide-react'
+import { ShieldAlert, ArrowUpDown, ArrowUp, ArrowDown, Plus, Download, Upload, X, Search } from 'lucide-react'
 
 // ---- Types ------------------------------------------------------------------
 
-type SortKey = 'title' | 'score' | 'status'
+type SortKey = 'id' | 'title' | 'category' | 'score' | 'status' | 'owner' | 'next_review'
 type SortDir = 'asc' | 'desc'
+type SeverityBucket = 'all' | 'Critical' | 'High' | 'Medium' | 'Low' | 'Unscored'
+
+const SEVERITY_BUCKETS: Exclude<SeverityBucket, 'all'>[] = ['Critical', 'High', 'Medium', 'Low', 'Unscored']
+
+function ownerLabel(risk: Risk): string {
+  return risk.owner?.full_name ?? risk.owner?.email ?? `#${risk.owner_id}`
+}
+
+function severityBucket(risk: Risk): Exclude<SeverityBucket, 'all'> {
+  const s = currentScore(risk)
+  if (s === null) return 'Unscored'
+  return scoreLabel(s)
+}
 
 // ---- Helpers ----------------------------------------------------------------
+
+function bulkBannerMessage(updated: number, failed: number): string {
+  const plural = updated === 1 ? '' : 's'
+  if (failed > 0) return `Updated ${updated} risk${plural} · ${failed} failed`
+  return `Updated ${updated} risk${plural}`
+}
 
 /** Display label for each status value. */
 const STATUS_LABELS: Record<RiskStatus, string> = {
@@ -43,19 +64,45 @@ const STATUS_LABELS: Record<RiskStatus, string> = {
   closed:      'Closed',
 }
 
+type Comparator = (a: Risk, b: Risk) => { result: number; pinToEnd: number }
+
+const COMPARATORS: Record<SortKey, Comparator> = {
+  title:       (a, b) => ({ result: a.title.localeCompare(b.title), pinToEnd: 0 }),
+  score:       (a, b) => ({ result: (currentScore(a) ?? -1) - (currentScore(b) ?? -1), pinToEnd: 0 }),
+  status:      (a, b) => ({ result: a.status.localeCompare(b.status), pinToEnd: 0 }),
+  id:          (a, b) => ({ result: a.risk_id.localeCompare(b.risk_id, undefined, { numeric: true }), pinToEnd: 0 }),
+  owner:       (a, b) => ({
+    result: (a.owner?.full_name ?? a.owner?.email ?? `#${a.owner_id}`)
+              .localeCompare(b.owner?.full_name ?? b.owner?.email ?? `#${b.owner_id}`),
+    pinToEnd: 0,
+  }),
+  category:    (a, b) => {
+    const ca = a.category ?? ''
+    const cb = b.category ?? ''
+    if (!ca && cb) return { result: 0, pinToEnd: 1 }
+    if (ca && !cb) return { result: 0, pinToEnd: -1 }
+    return { result: ca.localeCompare(cb), pinToEnd: 0 }
+  },
+  next_review: (a, b) => {
+    const da = a.next_review_date ?? ''
+    const db = b.next_review_date ?? ''
+    if (!da && db) return { result: 0, pinToEnd: 1 }
+    if (da && !db) return { result: 0, pinToEnd: -1 }
+    return { result: da.localeCompare(db), pinToEnd: 0 }
+  },
+}
+
 /** Sort comparator — returns negative/zero/positive like Array.sort expects. */
 function compareRisks(a: Risk, b: Risk, key: SortKey, dir: SortDir): number {
-  let result = 0
-  if (key === 'title') {
-    result = a.title.localeCompare(b.title)
-  } else if (key === 'score') {
-    const sa = currentScore(a) ?? -1
-    const sb = currentScore(b) ?? -1
-    result = sa - sb
-  } else if (key === 'status') {
-    result = a.status.localeCompare(b.status)
-  }
+  const { result, pinToEnd } = COMPARATORS[key](a, b)
+  if (pinToEnd !== 0) return pinToEnd
   return dir === 'asc' ? result : -result
+}
+
+function emptyStateMessage(anyFilterActive: boolean, canCreate: boolean): string {
+  if (anyFilterActive) return 'No risks match your filters. Try clearing them.'
+  if (canCreate) return 'Get started by creating your first risk.'
+  return 'No risks have been logged yet.'
 }
 
 // ---- Component --------------------------------------------------------------
@@ -73,6 +120,10 @@ export default function RisksPage() {
   // Filter + sort state
   const [statusFilter, setStatusFilter] = useState<RiskStatus | 'all'>('all')
   const [dueForReviewOnly, setDueForReviewOnly] = useState(false)
+  const [search, setSearch] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState<string>('all')
+  const [ownerFilter, setOwnerFilter] = useState<string>('all')
+  const [severityFilter, setSeverityFilter] = useState<SeverityBucket>('all')
   const [sortKey, setSortKey] = useState<SortKey>('title')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
 
@@ -85,10 +136,10 @@ export default function RisksPage() {
   // what the bulk endpoints accept.
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [reassignOpen, setReassignOpen] = useState(false)
-  const [closeOpen, setCloseOpen] = useState(false)
+  const [statusOpen, setStatusOpen] = useState(false)
   const [rescoreOpen, setRescoreOpen] = useState(false)
   const [bulkBanner, setBulkBanner] = useState<{ message: string; details: BulkRiskResult['errors'] } | null>(null)
-  const bannerTimerRef = useRef<number | null>(null)
+  const bannerTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null)
 
   const loadRisks = useCallback(() => {
     setIsLoading(true)
@@ -113,23 +164,20 @@ export default function RisksPage() {
   useEffect(() => { loadRisks() }, [loadRisks])
 
   // Clear selection when the visible set changes underneath the user.
-  useEffect(() => { setSelected(new Set()) }, [dueForReviewOnly, statusFilter])
+  useEffect(() => { setSelected(new Set()) }, [dueForReviewOnly, statusFilter, search, categoryFilter, ownerFilter, severityFilter])
 
   // Clean up any pending banner-dismiss timer on unmount.
   useEffect(() => () => {
-    if (bannerTimerRef.current !== null) window.clearTimeout(bannerTimerRef.current)
+    if (bannerTimerRef.current !== null) globalThis.clearTimeout(bannerTimerRef.current)
   }, [])
 
   function showBulkBanner(result: BulkRiskResult) {
     const updated = result.updated.length
     const failed = result.errors.length
-    const message =
-      failed > 0
-        ? `Updated ${updated} risk${updated === 1 ? '' : 's'} · ${failed} failed`
-        : `Updated ${updated} risk${updated === 1 ? '' : 's'}`
+    const message = bulkBannerMessage(updated, failed)
     setBulkBanner({ message, details: result.errors })
-    if (bannerTimerRef.current !== null) window.clearTimeout(bannerTimerRef.current)
-    bannerTimerRef.current = window.setTimeout(() => setBulkBanner(null), 5000)
+    if (bannerTimerRef.current !== null) globalThis.clearTimeout(bannerTimerRef.current)
+    bannerTimerRef.current = globalThis.setTimeout(() => setBulkBanner(null), 5000)
   }
 
   function handleBulkDone(result: BulkRiskResult) {
@@ -159,6 +207,17 @@ export default function RisksPage() {
     }
   }
 
+  // Distinct owners present in the loaded risks, sorted by label.
+  const ownerOptions = useMemo(() => {
+    const map = new Map<number, string>()
+    for (const r of risks) {
+      if (!map.has(r.owner_id)) map.set(r.owner_id, ownerLabel(r))
+    }
+    return Array.from(map.entries())
+      .map(([id, label]) => ({ id, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+  }, [risks])
+
   // Derived: filtered then sorted — recalculated only when dependencies change.
   // useMemo avoids re-sorting on every render (e.g. while the user types elsewhere).
   const displayedRisks = useMemo(() => {
@@ -166,8 +225,52 @@ export default function RisksPage() {
     if (statusFilter !== 'all') {
       items = items.filter((r) => r.status === statusFilter)
     }
+    if (categoryFilter !== 'all') {
+      items = items.filter((r) => r.category === categoryFilter)
+    }
+    if (ownerFilter !== 'all') {
+      const ownerId = Number(ownerFilter)
+      items = items.filter((r) => r.owner_id === ownerId)
+    }
+    if (severityFilter !== 'all') {
+      items = items.filter((r) => severityBucket(r) === severityFilter)
+    }
+    const q = search.trim().toLowerCase()
+    if (q) {
+      items = items.filter((r) => {
+        const fields = [
+          r.risk_id,
+          r.title,
+          r.description ?? '',
+          r.threat_source ?? '',
+          r.threat_event ?? '',
+          r.vulnerability ?? '',
+          r.affected_asset ?? '',
+          r.category ?? '',
+          ownerLabel(r),
+        ]
+        return fields.some((f) => f.toLowerCase().includes(q))
+      })
+    }
     return [...items].sort((a, b) => compareRisks(a, b, sortKey, sortDir))
-  }, [risks, statusFilter, sortKey, sortDir])
+  }, [risks, statusFilter, categoryFilter, ownerFilter, severityFilter, search, sortKey, sortDir])
+
+  const anyFilterActive =
+    search.trim() !== '' ||
+    statusFilter !== 'all' ||
+    categoryFilter !== 'all' ||
+    ownerFilter !== 'all' ||
+    severityFilter !== 'all' ||
+    dueForReviewOnly
+
+  function clearAllFilters() {
+    setSearch('')
+    setStatusFilter('all')
+    setCategoryFilter('all')
+    setOwnerFilter('all')
+    setSeverityFilter('all')
+    setDueForReviewOnly(false)
+  }
 
   // Toggle sort: clicking the same column flips direction; new column starts asc.
   function handleSort(key: SortKey) {
@@ -285,8 +388,8 @@ export default function RisksPage() {
           </div>
           {bulkBanner.details.length > 0 && (
             <ul className="mt-2 max-h-24 overflow-y-auto text-xs text-muted-foreground space-y-0.5">
-              {bulkBanner.details.slice(0, 5).map((e, i) => (
-                <li key={`${e.risk_id}-${i}`} className="font-mono">
+              {bulkBanner.details.slice(0, 5).map((e) => (
+                <li key={e.risk_id} className="font-mono">
                   {e.risk_id}: {e.message}
                 </li>
               ))}
@@ -317,8 +420,8 @@ export default function RisksPage() {
                 Reassign owner…
               </Button>
             )}
-            <Button variant="outline" size="sm" onClick={() => setCloseOpen(true)}>
-              Close…
+            <Button variant="outline" size="sm" onClick={() => setStatusOpen(true)}>
+              Change status…
             </Button>
             <Button variant="outline" size="sm" onClick={() => setRescoreOpen(true)}>
               Re-score…
@@ -328,40 +431,100 @@ export default function RisksPage() {
       )}
 
       {/* Filter bar */}
-      <div className="flex items-center gap-3">
-        <label htmlFor="status-filter" className="text-sm font-medium">
-          Status
-        </label>
-        <select
-          id="status-filter"
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as RiskStatus | 'all')}
-          className="rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
-        >
-          <option value="all">All</option>
-          {(Object.keys(STATUS_LABELS) as RiskStatus[]).map((s) => (
-            <option key={s} value={s}>{STATUS_LABELS[s]}</option>
-          ))}
-        </select>
-        {statusFilter !== 'all' && (
-          <button
-            onClick={() => setStatusFilter('all')}
-            className="text-xs text-muted-foreground hover:text-foreground underline"
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-3">
+          <div className="relative w-64">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="Search risks…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-8"
+            />
+          </div>
+          {anyFilterActive && (
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              className="ml-auto text-xs text-muted-foreground hover:text-foreground underline"
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <label htmlFor="status-filter" className="text-sm font-medium">
+            Status
+          </label>
+          <select
+            id="status-filter"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as RiskStatus | 'all')}
+            className="rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
           >
-            Clear
-          </button>
-        )}
+            <option value="all">All</option>
+            {(Object.keys(STATUS_LABELS) as RiskStatus[]).map((s) => (
+              <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+            ))}
+          </select>
 
-        <label htmlFor="due-for-review" className="flex items-center gap-2 text-sm font-medium ml-2">
-          <input
-            id="due-for-review"
-            type="checkbox"
-            checked={dueForReviewOnly}
-            onChange={(e) => setDueForReviewOnly(e.target.checked)}
-            className="h-4 w-4 rounded border-input text-primary focus:ring-2 focus:ring-ring"
-          />
-          Due for review only
-        </label>
+          <label htmlFor="category-filter" className="text-sm font-medium">
+            Category
+          </label>
+          <select
+            id="category-filter"
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="all">All categories</option>
+            {CATEGORIES.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+
+          <label htmlFor="owner-filter" className="text-sm font-medium">
+            Owner
+          </label>
+          <select
+            id="owner-filter"
+            value={ownerFilter}
+            onChange={(e) => setOwnerFilter(e.target.value)}
+            className="rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="all">All owners</option>
+            {ownerOptions.map((o) => (
+              <option key={o.id} value={String(o.id)}>{o.label}</option>
+            ))}
+          </select>
+
+          <label htmlFor="severity-filter" className="text-sm font-medium">
+            Severity
+          </label>
+          <select
+            id="severity-filter"
+            value={severityFilter}
+            onChange={(e) => setSeverityFilter(e.target.value as SeverityBucket)}
+            className="rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="all">All severities</option>
+            {SEVERITY_BUCKETS.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+
+          <label htmlFor="due-for-review" className="flex items-center gap-2 text-sm font-medium ml-2">
+            <input
+              id="due-for-review"
+              type="checkbox"
+              checked={dueForReviewOnly}
+              onChange={(e) => setDueForReviewOnly(e.target.checked)}
+              className="h-4 w-4 rounded border-input text-primary focus:ring-2 focus:ring-ring"
+            />
+            Due for review only
+          </label>
+        </div>
       </div>
 
       {/* Empty state */}
@@ -370,11 +533,7 @@ export default function RisksPage() {
           <ShieldAlert className="h-10 w-10 text-muted-foreground mb-3" />
           <p className="font-medium">No risks found</p>
           <p className="text-muted-foreground text-sm mt-1">
-            {statusFilter !== 'all'
-              ? 'Try changing the status filter.'
-              : canCreate
-              ? 'Get started by creating your first risk.'
-              : 'No risks have been logged yet.'}
+            {emptyStateMessage(anyFilterActive, canCreate)}
           </p>
         </div>
       ) : (
@@ -396,15 +555,13 @@ export default function RisksPage() {
                     />
                   </th>
                 )}
-                <th className="px-4 py-3 text-left font-medium w-28">ID</th>
-
-                {/* Sortable column header */}
-                <SortableHeader label="Title"  sortKey="title"  current={sortKey} dir={sortDir} onSort={handleSort} />
-                <th className="px-4 py-3 text-left font-medium">Category</th>
-                <SortableHeader label="Score"  sortKey="score"  current={sortKey} dir={sortDir} onSort={handleSort} />
-                <SortableHeader label="Status" sortKey="status" current={sortKey} dir={sortDir} onSort={handleSort} />
-                <th className="px-4 py-3 text-left font-medium">Owner</th>
-                <th className="px-4 py-3 text-left font-medium">Next review</th>
+                <SortableHeader label="ID"          sortKey="id"          current={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortableHeader label="Title"       sortKey="title"       current={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortableHeader label="Category"    sortKey="category"    current={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortableHeader label="Score"       sortKey="score"       current={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortableHeader label="Status"      sortKey="status"      current={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortableHeader label="Owner"       sortKey="owner"       current={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortableHeader label="Next review" sortKey="next_review" current={sortKey} dir={sortDir} onSort={handleSort} />
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -447,7 +604,7 @@ export default function RisksPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <Badge variant={risk.status as any}>
+                      <Badge variant={risk.status}>
                         {STATUS_LABELS[risk.status]}
                       </Badge>
                     </td>
@@ -455,23 +612,7 @@ export default function RisksPage() {
                       {risk.owner?.full_name ?? risk.owner?.email ?? `#${risk.owner_id}`}
                     </td>
                     <td className="px-4 py-3 text-xs">
-                      {risk.next_review_date ? (
-                        (() => {
-                          const today = new Date().toISOString().split('T')[0]
-                          const isOverdue =
-                            risk.next_review_date <= today &&
-                            risk.status !== 'closed' &&
-                            risk.status !== 'mitigated'
-                          const formatted = new Date(risk.next_review_date).toLocaleDateString()
-                          return isOverdue ? (
-                            <Badge variant="destructive">{formatted}</Badge>
-                          ) : (
-                            <span className="text-muted-foreground">{formatted}</span>
-                          )
-                        })()
-                      ) : (
-                        <span className="text-muted-foreground italic text-xs">—</span>
-                      )}
+                      <ReviewDateCell nextReviewDate={risk.next_review_date} status={risk.status} />
                     </td>
                   </tr>
                 )
@@ -487,10 +628,10 @@ export default function RisksPage() {
         onClose={() => setReassignOpen(false)}
         onDone={handleBulkDone}
       />
-      <BulkCloseDialog
-        open={closeOpen}
+      <BulkStatusDialog
+        open={statusOpen}
         riskIds={Array.from(selected)}
-        onClose={() => setCloseOpen(false)}
+        onClose={() => setStatusOpen(false)}
         onDone={handleBulkDone}
       />
       <BulkRescoreDialog
@@ -503,7 +644,37 @@ export default function RisksPage() {
   )
 }
 
-// ---- Sub-component ----------------------------------------------------------
+// ---- Sub-components ---------------------------------------------------------
+
+function ReviewDateCell({
+  nextReviewDate,
+  status,
+}: Readonly<{
+  nextReviewDate: string | null | undefined
+  status: RiskStatus
+}>) {
+  if (!nextReviewDate) {
+    return <span className="text-muted-foreground italic text-xs">—</span>
+  }
+  const today = new Date().toISOString().split('T')[0]
+  const isOverdue =
+    nextReviewDate <= today &&
+    status !== 'closed' &&
+    status !== 'mitigated'
+  const formatted = new Date(nextReviewDate).toLocaleDateString()
+  return isOverdue ? (
+    <Badge variant="destructive">{formatted}</Badge>
+  ) : (
+    <span className="text-muted-foreground">{formatted}</span>
+  )
+}
+
+function SortIcon({ isActive, dir }: Readonly<{ isActive: boolean; dir: SortDir }>) {
+  if (!isActive) return <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />
+  return dir === 'asc'
+    ? <ArrowUp className="h-3 w-3 text-foreground" />
+    : <ArrowDown className="h-3 w-3 text-foreground" />
+}
 
 /** Clickable table header that shows a sort indicator. */
 function SortableHeader({
@@ -512,13 +683,13 @@ function SortableHeader({
   current,
   dir,
   onSort,
-}: {
+}: Readonly<{
   label: string
   sortKey: SortKey
   current: SortKey
   dir: SortDir
   onSort: (key: SortKey) => void
-}) {
+}>) {
   const isActive = current === sortKey
   return (
     <th className="px-4 py-3 text-left font-medium">
@@ -527,9 +698,7 @@ function SortableHeader({
         className="flex items-center gap-1 hover:text-foreground transition-colors"
       >
         {label}
-        <ArrowUpDown
-          className={`h-3 w-3 ${isActive ? 'text-foreground' : 'text-muted-foreground/50'}`}
-        />
+        <SortIcon isActive={isActive} dir={dir} />
         {isActive && (
           <span className="sr-only">{dir === 'asc' ? 'ascending' : 'descending'}</span>
         )}

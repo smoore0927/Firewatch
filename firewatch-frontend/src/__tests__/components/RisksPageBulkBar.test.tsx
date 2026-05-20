@@ -113,7 +113,7 @@ describe('RisksPage bulk action bar', () => {
 
     expect(await screen.findByText('1 selected')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /reassign owner/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^close…$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /change status/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /re-score/i })).toBeInTheDocument()
   })
 
@@ -132,7 +132,7 @@ describe('RisksPage bulk action bar', () => {
 
     expect(await screen.findByText('1 selected')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /reassign owner/i })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^close…$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /change status/i })).toBeInTheDocument()
   })
 
   it('does not render selection checkboxes for executive_viewer', async () => {
