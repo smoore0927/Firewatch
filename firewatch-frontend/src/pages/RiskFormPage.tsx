@@ -211,6 +211,62 @@ export default function RiskFormPage({ mode }: RiskFormPageProps) {
 
       <form onSubmit={handleSubmit} className="space-y-8" noValidate>
 
+        {/* ---- Scoring ---- */}
+        <section className="space-y-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Initial score
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Both fields must be set together. Score = likelihood x impact (1-25).
+            You can add more assessments later from the risk detail page.
+          </p>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="likelihood">Likelihood</Label>
+              <select
+                id="likelihood"
+                value={form.likelihood}
+                onChange={setField('likelihood')}
+                disabled={isSubmitting}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              >
+                <option value="">Not set</option>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <option key={n} value={n}>{LIKELIHOOD_LABELS[n]}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="impact">Impact</Label>
+              <select
+                id="impact"
+                value={form.impact}
+                onChange={setField('impact')}
+                disabled={isSubmitting}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              >
+                <option value="">Not set</option>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <option key={n} value={n}>{LIKELIHOOD_LABELS[n]}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Live score preview */}
+          {form.likelihood && form.impact && (
+            <p className="text-sm text-muted-foreground">
+              Score preview:{' '}
+              <span className="font-semibold text-foreground">
+                {Number(form.likelihood) * Number(form.impact)}
+              </span>
+              {' '}({Number(form.likelihood)} x {Number(form.impact)})
+            </p>
+          )}
+        </section>
+
         {/* ---- Core fields ---- */}
         <section className="space-y-4">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
@@ -357,7 +413,7 @@ export default function RiskFormPage({ mode }: RiskFormPageProps) {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Review cadence
           </h2>
-          <p className="text-xs text-muted-foreground">Set a cadence to be reminded when this risk is due for reassessment. Re-scoring auto-schedules the next review.</p>
+          <p className="text-xs text-muted-foreground">Set a cadence to be reminded when this risk is due for review. Logging a review auto-schedules the next one.</p>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -389,62 +445,6 @@ export default function RiskFormPage({ mode }: RiskFormPageProps) {
               />
             </div>
           </div>
-        </section>
-
-        {/* ---- Scoring ---- */}
-        <section className="space-y-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Initial score
-          </h2>
-          <p className="text-xs text-muted-foreground">
-            Both fields must be set together. Score = likelihood x impact (1-25).
-            You can add more assessments later from the risk detail page.
-          </p>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="likelihood">Likelihood</Label>
-              <select
-                id="likelihood"
-                value={form.likelihood}
-                onChange={setField('likelihood')}
-                disabled={isSubmitting}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-              >
-                <option value="">Not set</option>
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <option key={n} value={n}>{LIKELIHOOD_LABELS[n]}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="impact">Impact</Label>
-              <select
-                id="impact"
-                value={form.impact}
-                onChange={setField('impact')}
-                disabled={isSubmitting}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-              >
-                <option value="">Not set</option>
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <option key={n} value={n}>{LIKELIHOOD_LABELS[n]}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Live score preview */}
-          {form.likelihood && form.impact && (
-            <p className="text-sm text-muted-foreground">
-              Score preview:{' '}
-              <span className="font-semibold text-foreground">
-                {Number(form.likelihood) * Number(form.impact)}
-              </span>
-              {' '}({Number(form.likelihood)} x {Number(form.impact)})
-            </p>
-          )}
         </section>
 
         {error && (

@@ -61,6 +61,8 @@ export type ScoreHistoryPoint = components['schemas']['ScoreHistoryPoint']
 export type ScoreHistoryResponse = components['schemas']['ScoreHistoryResponse']
 export type ScoreTotalsBySeverityPoint = components['schemas']['ScoreTotalsBySeverityPoint']
 export type ScoreTotalsBySeverityResponse = components['schemas']['ScoreTotalsBySeverityResponse']
+export type ActionQueueItem = components['schemas']['ActionQueueItem']
+export type ActionQueueResponse = components['schemas']['ActionQueueResponse']
 
 // -------------------------------------------------------------------------
 // Analytics

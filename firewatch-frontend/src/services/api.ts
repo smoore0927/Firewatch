@@ -120,7 +120,7 @@ export const authApi = {
 // Risks
 // -------------------------------------------------------------------------
 
-import type { ApiKey, ApiKeyCreated, ApiKeyWithOwner, AuditLogListResponse, BulkReassignRequest, BulkRescoreRequest, BulkRiskResult, BulkStatusRequest, DashboardSummary, ImportResult, ResidualReductionResponse, Risk, RiskCreate, RiskListResponse, RiskReport, RiskUpdate, ScoreHistoryResponse, ScoreTotalsBySeverityResponse, Severity, User, UserRole, VelocityMTTMResponse, VelocityThroughputResponse, WebhookDeliveryList, WebhookSubscription, WebhookSubscriptionCreate, WebhookSubscriptionCreated, WebhookSubscriptionUpdate } from '@/types'
+import type { ActionQueueResponse, ApiKey, ApiKeyCreated, ApiKeyWithOwner, AuditLogListResponse, BulkReassignRequest, BulkRescoreRequest, BulkRiskResult, BulkStatusRequest, DashboardSummary, ImportResult, ResidualReductionResponse, Risk, RiskCreate, RiskListResponse, RiskReport, RiskUpdate, ScoreHistoryResponse, ScoreTotalsBySeverityResponse, Severity, User, UserRole, VelocityMTTMResponse, VelocityThroughputResponse, WebhookDeliveryList, WebhookSubscription, WebhookSubscriptionCreate, WebhookSubscriptionCreated, WebhookSubscriptionUpdate } from '@/types'
 
 // Parses a Content-Disposition header value to extract the filename.
 // Handles both `filename="x.csv"` and the RFC 5987 `filename*=UTF-8''x.csv` form.
@@ -210,7 +210,13 @@ export const risksApi = {
   // Returns the updated full Risk so the detail page can refresh in one call.
   addAssessment: (
     riskId: string,
-    data: { likelihood: number; impact: number; notes?: string },
+    data: {
+      likelihood: number
+      impact: number
+      notes?: string
+      residual_likelihood?: number
+      residual_impact?: number
+    },
   ) =>
     request<Risk>(
       `/api/risks/${riskId}/assessments`,
@@ -350,6 +356,11 @@ export const dashboardApi = {
     request<ScoreTotalsBySeverityResponse>(
       `/api/dashboard/score-totals-by-severity?start=${start}&end=${end}`,
     ),
+
+  getActionQueue: (limit?: number) => {
+    const query = limit === undefined ? '' : `?limit=${limit}`
+    return request<ActionQueueResponse>(`/api/dashboard/action-queue${query}`)
+  },
 }
 
 // -------------------------------------------------------------------------

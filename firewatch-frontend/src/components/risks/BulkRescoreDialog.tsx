@@ -58,7 +58,7 @@ export default function BulkRescoreDialog({ open, riskIds, onClose, onDone }: Pr
       onDone(result)
       onClose()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not re-score, try again.')
+      setError(err instanceof ApiError ? err.message : 'Could not save review, try again.')
     } finally {
       setIsSubmitting(false)
     }
@@ -79,10 +79,10 @@ export default function BulkRescoreDialog({ open, riskIds, onClose, onDone }: Pr
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 id="bulk-rescore-title" className="text-lg font-semibold">
-              Re-score risks
+              Log review
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Add a new assessment to {riskIds.length} risk{riskIds.length === 1 ? '' : 's'}.
+              Log a review for {riskIds.length} risk{riskIds.length === 1 ? '' : 's'}.
             </p>
           </div>
           <button
@@ -146,7 +146,7 @@ export default function BulkRescoreDialog({ open, riskIds, onClose, onDone }: Pr
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               disabled={isSubmitting}
-              placeholder="Why are these risks being re-scored?"
+              placeholder="Why are these risks being reviewed?"
               className="mt-1"
             />
           </div>
@@ -158,7 +158,7 @@ export default function BulkRescoreDialog({ open, riskIds, onClose, onDone }: Pr
               Cancel
             </Button>
             <Button type="button" onClick={handleConfirm} disabled={isSubmitting}>
-              {isSubmitting ? 'Re-scoring…' : 'Re-score'}
+              {isSubmitting ? 'Saving…' : 'Save review'}
             </Button>
           </div>
         </div>

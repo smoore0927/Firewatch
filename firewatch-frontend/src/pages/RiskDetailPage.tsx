@@ -18,7 +18,13 @@ import type { Risk, RiskAssessment, RiskHistory, RiskStatus, User } from '@/type
 import { Badge, scoreToBadgeVariant } from '@/components/ui/badge'
 import type { BadgeVariant } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, Pencil, Trash2, ArrowUp, ArrowDown, Minus, RefreshCw, ChevronDown, ChevronRight, X } from 'lucide-react'
+import { ArrowLeft, Pencil, Trash2, ArrowUp, ArrowDown, Minus, RefreshCw, ChevronDown, ChevronRight, X, MoreHorizontal } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu'
 
 // ---- Constants --------------------------------------------------------------
 
@@ -387,7 +393,7 @@ function FullContentModal({ change, onClose }: Readonly<{
     <dialog
       ref={ref}
       onClose={onClose}
-      className="bg-background rounded-lg border shadow-lg max-w-lg w-full mx-4 p-6 space-y-4 backdrop:bg-black/50"
+      className="bg-background rounded-lg border shadow-lg m-auto max-w-[min(32rem,calc(100vw-2rem))] w-full p-6 space-y-4 backdrop:bg-black/50"
     >
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-sm">
@@ -454,7 +460,7 @@ function DeleteConfirmDialog({
       aria-labelledby="delete-dialog-title"
       onCancel={handleCancelEvent}
       onClose={onClose}
-      className="bg-background rounded-lg border shadow-lg max-w-md w-full mx-4 p-6 space-y-4 backdrop:bg-black/50"
+      className="bg-background rounded-lg border shadow-lg m-auto max-w-[min(28rem,calc(100vw-2rem))] w-full p-6 space-y-4 backdrop:bg-black/50"
     >
       <h3 id="delete-dialog-title" className="font-semibold text-base">Delete this risk?</h3>
       <div className="text-sm text-muted-foreground space-y-3">
@@ -575,20 +581,33 @@ export default function RiskDetailPage() {
   // ---- Inline re-assess ----
   const [isAssessing, setIsAssessing]         = useState(false)
   const [isSavingAssessment, setIsSavingAssessment] = useState(false)
-  const [assessForm, setAssessForm] = useState({ likelihood: '', impact: '', notes: '' })
+  const [assessForm, setAssessForm] = useState({
+    residual_likelihood: '',
+    residual_impact: '',
+    notes: '',
+  })
 
   async function handleAddAssessment(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault()
-    if (!riskId || !assessForm.likelihood || !assessForm.impact) return
+    if (!riskId) return
     setIsSavingAssessment(true)
     try {
+      const hasResidual = !!assessForm.residual_likelihood && !!assessForm.residual_impact
       await risksApi.addAssessment(riskId, {
-        likelihood: Number(assessForm.likelihood),
-        impact:     Number(assessForm.impact),
+        likelihood: latestAssessment!.likelihood,
+        impact:     latestAssessment!.impact,
         ...(assessForm.notes.trim() && { notes: assessForm.notes.trim() }),
+        ...(hasResidual && {
+          residual_likelihood: Number(assessForm.residual_likelihood),
+          residual_impact:     Number(assessForm.residual_impact),
+        }),
       })
       setIsAssessing(false)
-      setAssessForm({ likelihood: '', impact: '', notes: '' })
+      setAssessForm({
+        residual_likelihood: '',
+        residual_impact: '',
+        notes: '',
+      })
       loadRisk()
     } finally {
       setIsSavingAssessment(false)
@@ -702,10 +721,22 @@ export default function RiskDetailPage() {
               </Button>
             )}
             {user?.role === 'admin' && (
-              <Button size="sm" variant="destructive" className="gap-2"
-                onClick={() => { setDeleteError(null); setIsDeleteOpen(true) }}>
-                <Trash2 className="h-3 w-3" /> Delete
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="outline" aria-label="More actions">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onSelect={() => { setDeleteError(null); setIsDeleteOpen(true) }}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete this risk
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
           </div>
         </div>
@@ -718,7 +749,7 @@ export default function RiskDetailPage() {
         </h2>
         {score === null ? (
           <p className="text-sm text-muted-foreground italic">
-            No score yet — add one below.
+            No score yet — set an initial score on the edit page.
           </p>
         ) : (
           <div className="flex items-center gap-6">
@@ -737,9 +768,15 @@ export default function RiskDetailPage() {
                   Impact: <span className="font-medium">{latestAssessment.impact} — {LIKELIHOOD_LABELS[latestAssessment.impact]}</span>
                 </p>
               )}
+              {latestAssessment?.residual_risk_score != null && (
+                <p className="text-xs text-muted-foreground">
+                  Residual: <strong className="font-medium text-foreground">{latestAssessment.residual_risk_score}</strong>
+                  {' '}({latestAssessment.residual_likelihood} × {latestAssessment.residual_impact})
+                </p>
+              )}
               {latestAssessment?.assessed_at && (
                 <p className="text-xs text-muted-foreground">
-                  Last assessed: {new Date(latestAssessment.assessed_at).toLocaleDateString()}
+                  Last reviewed: {new Date(latestAssessment.assessed_at).toLocaleDateString()}
                 </p>
               )}
             </div>
@@ -751,48 +788,49 @@ export default function RiskDetailPage() {
           <div className="mt-4 pt-4 border-t">
             {isAssessing ? (
               <form onSubmit={handleAddAssessment} className="space-y-3" noValidate>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label htmlFor="assess-likelihood" className="text-xs font-medium">Likelihood</label>
-                    <select
-                      id="assess-likelihood"
-                      value={assessForm.likelihood}
-                      onChange={(e) => setAssessForm((p) => ({ ...p, likelihood: e.target.value }))}
-                      disabled={isSavingAssessment}
-                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-                    >
-                      <option value="">Not set</option>
-                      {[1,2,3,4,5].map((n) => (
-                        <option key={n} value={n}>{n} — {LIKELIHOOD_LABELS[n]}</option>
-                      ))}
-                    </select>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label htmlFor="assess-residual-likelihood" className="text-xs font-medium">Likelihood</label>
+                      <select
+                        id="assess-residual-likelihood"
+                        value={assessForm.residual_likelihood}
+                        onChange={(e) => setAssessForm((p) => ({ ...p, residual_likelihood: e.target.value }))}
+                        disabled={isSavingAssessment}
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                      >
+                        <option value="">Not set</option>
+                        {[1,2,3,4,5].map((n) => (
+                          <option key={n} value={n}>{n} — {LIKELIHOOD_LABELS[n]}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label htmlFor="assess-residual-impact" className="text-xs font-medium">Impact</label>
+                      <select
+                        id="assess-residual-impact"
+                        value={assessForm.residual_impact}
+                        onChange={(e) => setAssessForm((p) => ({ ...p, residual_impact: e.target.value }))}
+                        disabled={isSavingAssessment}
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                      >
+                        <option value="">Not set</option>
+                        {[1,2,3,4,5].map((n) => (
+                          <option key={n} value={n}>{n} — {LIKELIHOOD_LABELS[n]}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <label htmlFor="assess-impact" className="text-xs font-medium">Impact</label>
-                    <select
-                      id="assess-impact"
-                      value={assessForm.impact}
-                      onChange={(e) => setAssessForm((p) => ({ ...p, impact: e.target.value }))}
-                      disabled={isSavingAssessment}
-                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-                    >
-                      <option value="">Not set</option>
-                      {[1,2,3,4,5].map((n) => (
-                        <option key={n} value={n}>{n} — {LIKELIHOOD_LABELS[n]}</option>
-                      ))}
-                    </select>
-                  </div>
+                  {assessForm.residual_likelihood && assessForm.residual_impact && (
+                    <p className="text-xs text-muted-foreground">
+                      Residual score preview:{' '}
+                      <span className="font-semibold text-foreground">
+                        {Number(assessForm.residual_likelihood) * Number(assessForm.residual_impact)}
+                      </span>
+                      {' '}({assessForm.residual_likelihood} × {assessForm.residual_impact})
+                    </p>
+                  )}
                 </div>
-
-                {assessForm.likelihood && assessForm.impact && (
-                  <p className="text-xs text-muted-foreground">
-                    Score preview:{' '}
-                    <span className="font-semibold text-foreground">
-                      {Number(assessForm.likelihood) * Number(assessForm.impact)}
-                    </span>
-                    {' '}({assessForm.likelihood} × {assessForm.impact})
-                  </p>
-                )}
 
                 <textarea
                   value={assessForm.notes}
@@ -807,9 +845,9 @@ export default function RiskDetailPage() {
                   <Button
                     type="submit"
                     size="sm"
-                    disabled={!assessForm.likelihood || !assessForm.impact || isSavingAssessment}
+                    disabled={isSavingAssessment}
                   >
-                    {isSavingAssessment ? 'Saving…' : 'Save assessment'}
+                    {isSavingAssessment ? 'Saving…' : 'Save review'}
                   </Button>
                   <Button
                     type="button"
@@ -818,7 +856,11 @@ export default function RiskDetailPage() {
                     disabled={isSavingAssessment}
                     onClick={() => {
                       setIsAssessing(false)
-                      setAssessForm({ likelihood: '', impact: '', notes: '' })
+                      setAssessForm({
+                        residual_likelihood: '',
+                        residual_impact: '',
+                        notes: '',
+                      })
                     }}
                   >
                     Cancel
@@ -826,12 +868,14 @@ export default function RiskDetailPage() {
                 </div>
               </form>
             ) : (
-              <button
-                onClick={() => setIsAssessing(true)}
-                className="text-xs text-primary hover:underline"
-              >
-                + Add assessment
-              </button>
+              latestAssessment !== null && (
+                <button
+                  onClick={() => setIsAssessing(true)}
+                  className="text-xs text-primary hover:underline"
+                >
+                  + Log review
+                </button>
+              )
             )}
           </div>
         )}
@@ -844,7 +888,7 @@ export default function RiskDetailPage() {
         </h2>
         <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4 text-sm">
           <Detail label="Category"       value={risk.category} />
-          <Detail label="Affected asset" value={risk.affected_asset} />
+          <Detail label="Created"        value={new Date(risk.created_at).toLocaleDateString()} />
           {/* Owner — inline select for editors; read-only text for everyone else */}
           {canEdit && users.length > 0 ? (
             <div className={isSavingOwner ? 'opacity-50' : ''}>
@@ -872,7 +916,8 @@ export default function RiskDetailPage() {
           ) : (
             <Detail label="Owner" value={risk.owner?.full_name ?? risk.owner?.email ?? `User #${risk.owner_id}`} />
           )}
-          <Detail label="Created"        value={new Date(risk.created_at).toLocaleDateString()} />
+          <Detail label="Next review"    value={risk.next_review_date ? new Date(risk.next_review_date).toLocaleDateString() : null} />
+          <Detail label="Affected asset" value={risk.affected_asset} />
           <Detail label="Threat source"  value={risk.threat_source}  className="sm:col-span-2" />
           <Detail label="Threat event"   value={risk.threat_event}   className="sm:col-span-2" />
           <Detail label="Vulnerability"  value={risk.vulnerability}  className="sm:col-span-2" />

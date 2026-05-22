@@ -22,6 +22,7 @@ import AppLayout from '@/components/layout/AppLayout'
 import SettingsLayout from '@/components/layout/SettingsLayout'
 import LoginPage from '@/pages/LoginPage'
 import DashboardPage from '@/pages/DashboardPage'
+import ActionQueuePage from '@/pages/ActionQueuePage'
 import AnalyticsPage from '@/pages/AnalyticsPage'
 import RisksPage from '@/pages/RisksPage'
 import RiskDetailPage from '@/pages/RiskDetailPage'
@@ -43,6 +44,7 @@ export default function App() {
         <Route element={<AppLayout />}>
           <Route index element={<Navigate to="/risks" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/action-queue" element={<ActionQueuePage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/risks" element={<RisksPage />} />
           {/* /risks/new must come before /risks/:riskId so React Router
