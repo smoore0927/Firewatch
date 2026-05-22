@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
-import { Download } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronRight, ChevronUp, Download } from 'lucide-react'
 import { dashboardApi, ApiError } from '@/services/api'
-import type { DashboardSummary, ScoreTotalsBySeverityResponse, Severity } from '@/types'
+import type { ActionQueueResponse, DashboardSummary, ScoreTotalsBySeverityResponse, Severity } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
+import ActionQueueRow from '@/components/dashboard/ActionQueueRow'
 import ExportReportDialog from '@/components/dashboard/ExportReportDialog'
+import { DateRangePicker, type RangePreset } from '@/components/DateRangePicker'
+
+const DASHBOARD_ACTION_LIMIT = 3
 
 const SEVERITY_COLORS: Record<Severity, string> = {
   low: '#22c55e',
@@ -43,6 +47,8 @@ export default function DashboardPage() {
   const scopeLabel = user?.role === 'risk_owner' ? 'Showing your risks' : 'Showing all risks'
 
   const [summary, setSummary] = useState<DashboardSummary | null>(null)
+  const [actionQueue, setActionQueue] = useState<ActionQueueResponse | null>(null)
+  const hasOverdue = (actionQueue?.items.length ?? 0) > 0
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -52,6 +58,7 @@ export default function DashboardPage() {
 
   const [startDate, setStartDate] = useState(toDateStr(ninetyDaysAgo))
   const [endDate, setEndDate] = useState(toDateStr(today))
+  const [range, setRange] = useState<RangePreset>('90d')
   const [totals, setTotals] = useState<ScoreTotalsBySeverityResponse | null>(null)
   const [visible, setVisible] = useState<Record<Severity, boolean>>({
     low: false,
@@ -60,6 +67,17 @@ export default function DashboardPage() {
     critical: true,
   })
   const [exportOpen, setExportOpen] = useState(false)
+  const [actionQueueCollapsed, setActionQueueCollapsed] = useState<boolean>(() => {
+    return localStorage.getItem('dashboard.actionQueue.collapsed') === '1'
+  })
+
+  function toggleActionQueueCollapsed() {
+    setActionQueueCollapsed((prev) => {
+      const next = !prev
+      localStorage.setItem('dashboard.actionQueue.collapsed', next ? '1' : '0')
+      return next
+    })
+  }
 
   const matrixRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<HTMLDivElement>(null)
@@ -83,6 +101,10 @@ export default function DashboardPage() {
       .catch(() => {})
   }, [startDate, endDate])
 
+  useEffect(() => {
+    dashboardApi.getActionQueue(DASHBOARD_ACTION_LIMIT).then(setActionQueue).catch(() => {})
+  }, [])
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -91,17 +113,29 @@ export default function DashboardPage() {
           <p className="text-muted-foreground text-sm">Risk register overview</p>
           <p className="text-sm text-muted-foreground">{scopeLabel}</p>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="gap-2"
-          onClick={() => setExportOpen(true)}
-          disabled={!summary}
-        >
-          <Download className="h-4 w-4" />
-          Export PDF
-        </Button>
+        <div className="flex items-center gap-2">
+          <DateRangePicker
+            start={startDate}
+            end={endDate}
+            preset={range}
+            onChange={({ start, end, preset }) => {
+              setStartDate(start)
+              setEndDate(end)
+              setRange(preset)
+            }}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => setExportOpen(true)}
+            disabled={!summary}
+          >
+            <Download className="h-4 w-4" />
+            Export PDF
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -110,6 +144,63 @@ export default function DashboardPage() {
 
       {!isLoading && summary && (
         <div className="space-y-4">
+          <Card className={cn(hasOverdue && 'border-l-4 border-l-destructive bg-destructive/5')}>
+            <CardHeader className="pb-2">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <CardTitle className="text-sm font-medium flex items-center gap-2">
+                    {hasOverdue && <AlertTriangle className="h-4 w-4 text-destructive" />}
+                    Action Queue
+                  </CardTitle>
+                  <CardDescription>Overdue items to address</CardDescription>
+                </div>
+                <button
+                  type="button"
+                  onClick={toggleActionQueueCollapsed}
+                  aria-label={actionQueueCollapsed ? 'Expand Action Queue' : 'Collapse Action Queue'}
+                  aria-expanded={!actionQueueCollapsed}
+                  className="text-muted-foreground hover:text-foreground p-1 -m-1"
+                >
+                  {actionQueueCollapsed
+                    ? <ChevronDown className="h-4 w-4" />
+                    : <ChevronUp className="h-4 w-4" />}
+                </button>
+              </div>
+            </CardHeader>
+            {!actionQueueCollapsed && (
+              <CardContent>
+                {actionQueue === null && (
+                  <p className="text-sm text-muted-foreground">Loading…</p>
+                )}
+                {actionQueue !== null && actionQueue.items.length === 0 && (
+                  <p className="text-sm text-muted-foreground">You're all caught up — no overdue items.</p>
+                )}
+                {actionQueue !== null && actionQueue.items.length > 0 && (
+                  <>
+                    <ul className="divide-y divide-border">
+                      {actionQueue.items.map((item) => (
+                        <li key={`${item.kind}-${item.risk_id}-${item.due_date}`}>
+                          <ActionQueueRow item={item} />
+                        </li>
+                      ))}
+                    </ul>
+                    {actionQueue.total > actionQueue.items.length && (
+                      <div className="pt-3 mt-2 border-t border-border">
+                        <Link
+                          to="/action-queue"
+                          className="text-xs text-primary hover:underline inline-flex items-center gap-1"
+                        >
+                          View all {actionQueue.total} overdue items
+                          <ChevronRight className="h-3 w-3" />
+                        </Link>
+                      </div>
+                    )}
+                  </>
+                )}
+              </CardContent>
+            )}
+          </Card>
+
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
             <Card>
               <CardHeader className="pb-2">
@@ -166,55 +257,60 @@ export default function DashboardPage() {
             </Card>
           </div>
 
-          <div>
-            <h2 className="text-sm font-medium mb-3">Risk Matrix</h2>
-            <div ref={matrixRef} className="flex gap-3 items-start bg-background p-2">
-              {/* Y-axis label */}
-              <div className="flex items-center justify-center self-stretch">
-                <span
-                  className="text-xs text-muted-foreground"
-                  style={{ writingMode: 'vertical-lr', transform: 'rotate(180deg)' }}
-                >
-                  Likelihood
-                </span>
-              </div>
-
-              <div className="flex flex-col gap-1">
-                {/* Rows: likelihood 5 → 1 (high at top) */}
-                {[5, 4, 3, 2, 1].map((likelihood) => (
-                  <div key={likelihood} className="flex items-center gap-1">
-                    <span className="text-xs text-muted-foreground w-4 text-right">{likelihood}</span>
-                    {[1, 2, 3, 4, 5].map((impact) => {
-                      const count = summary.risk_matrix[likelihood - 1]?.[impact - 1] ?? 0
-                      const score = likelihood * impact
-                      return (
-                        <div
-                          key={impact}
-                          className={cn(
-                            'w-11 h-11 flex items-center justify-center rounded-lg text-sm font-bold',
-                            cellColor(score),
-                          )}
-                        >
-                          {count > 0 ? count : ''}
-                        </div>
-                      )
-                    })}
+          <div className="flex flex-col lg:flex-row gap-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Risk Matrix</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div ref={matrixRef} className="flex gap-3 items-start bg-background p-2">
+                  {/* Y-axis label */}
+                  <div className="flex items-center justify-center self-stretch">
+                    <span
+                      className="text-xs text-muted-foreground"
+                      style={{ writingMode: 'vertical-lr', transform: 'rotate(180deg)' }}
+                    >
+                      Likelihood
+                    </span>
                   </div>
-                ))}
 
-                {/* X-axis: impact labels */}
-                <div className="flex items-center gap-1 mt-1">
-                  <div className="w-4" />
-                  {[1, 2, 3, 4, 5].map((i) => (
-                    <div key={i} className="w-11 text-center text-xs text-muted-foreground">{i}</div>
-                  ))}
+                  <div className="flex flex-col gap-1">
+                    {/* Rows: likelihood 5 → 1 (high at top) */}
+                    {[5, 4, 3, 2, 1].map((likelihood) => (
+                      <div key={likelihood} className="flex items-center gap-1">
+                        <span className="text-xs text-muted-foreground w-4 text-right">{likelihood}</span>
+                        {[1, 2, 3, 4, 5].map((impact) => {
+                          const count = summary.risk_matrix[likelihood - 1]?.[impact - 1] ?? 0
+                          const score = likelihood * impact
+                          return (
+                            <div
+                              key={impact}
+                              className={cn(
+                                'w-11 h-11 flex items-center justify-center rounded-lg text-sm font-bold',
+                                cellColor(score),
+                              )}
+                            >
+                              {count > 0 ? count : ''}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ))}
+
+                    {/* X-axis: impact labels */}
+                    <div className="flex items-center gap-1 mt-1">
+                      <div className="w-4" />
+                      {[1, 2, 3, 4, 5].map((i) => (
+                        <div key={i} className="w-11 text-center text-xs text-muted-foreground">{i}</div>
+                      ))}
+                    </div>
+                    <div className="text-center text-xs text-muted-foreground ml-5">Impact</div>
+                  </div>
                 </div>
-                <div className="text-center text-xs text-muted-foreground ml-5">Impact</div>
-              </div>
-            </div>
-          </div>
+              </CardContent>
+            </Card>
 
-          <Card ref={chartRef}>
+            <Card ref={chartRef} className="flex-1 min-w-0 flex flex-col">
             <CardHeader className="pb-2">
               <div className="flex items-end justify-between gap-4 flex-wrap">
                 <CardTitle className="text-sm font-medium">Risk Score Totals by Severity</CardTitle>
@@ -241,34 +337,12 @@ export default function DashboardPage() {
                       </div>
                     ))}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Label htmlFor="start-date" className="text-xs whitespace-nowrap">From</Label>
-                    <Input
-                      id="start-date"
-                      type="date"
-                      value={startDate}
-                      max={endDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      className="h-8 text-xs w-36"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Label htmlFor="end-date" className="text-xs whitespace-nowrap">To</Label>
-                    <Input
-                      id="end-date"
-                      type="date"
-                      value={endDate}
-                      min={startDate}
-                      onChange={(e) => setEndDate(e.target.value)}
-                      className="h-8 text-xs w-36"
-                    />
-                  </div>
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex-1 min-h-0">
               {totals && totals.points.length > 0 ? (
-                <ResponsiveContainer width="100%" height={260}>
+                <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={totals.points} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                     <XAxis dataKey="date" tick={{ fontSize: 11 }} />
@@ -285,7 +359,7 @@ export default function DashboardPage() {
                         name={SEVERITY_LABELS[key]}
                         stroke={SEVERITY_COLORS[key]}
                         strokeWidth={2}
-                        dot={{ r: 3 }}
+                        dot={false}
                         activeDot={{ r: 5 }}
                       />
                     ))}
@@ -298,6 +372,7 @@ export default function DashboardPage() {
               )}
             </CardContent>
           </Card>
+          </div>
         </div>
       )}
 

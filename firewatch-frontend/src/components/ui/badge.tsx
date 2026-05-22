@@ -14,6 +14,7 @@ const badgeVariants = cva(
     variants: {
       variant: {
         default:  'bg-primary/10 text-primary',
+        secondary: 'bg-secondary text-secondary-foreground',
         outline:  'border border-border text-foreground',
         // Risk severity — mapped from score ranges in scoreBadgeVariant() below
         low:      'bg-green-100  text-green-800',

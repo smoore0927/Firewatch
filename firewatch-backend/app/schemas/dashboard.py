@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -32,3 +34,16 @@ class ScoreTotalsBySeverityPoint(BaseModel):
 
 class ScoreTotalsBySeverityResponse(BaseModel):
     points: list[ScoreTotalsBySeverityPoint]
+
+
+class ActionQueueItem(BaseModel):
+    kind: Literal['review', 'response']
+    risk_id: str          # human-readable RISK-XXX
+    risk_title: str
+    due_date: str         # YYYY-MM-DD
+    days_overdue: int     # >= 0
+
+
+class ActionQueueResponse(BaseModel):
+    items: list[ActionQueueItem]
+    total: int

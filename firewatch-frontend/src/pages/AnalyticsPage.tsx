@@ -8,8 +8,8 @@ import type {
   VelocityThroughputResponse,
 } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { DateRangePicker, type RangePreset } from '@/components/DateRangePicker'
 import { CATEGORIES } from '@/lib/constants'
 
 const SEVERITY_COLORS: Record<Severity, string> = {
@@ -44,6 +44,7 @@ export default function AnalyticsPage() {
 
   const [startDate, setStartDate] = useState(toDateStr(ninetyDaysAgo))
   const [endDate, setEndDate] = useState(toDateStr(today))
+  const [range, setRange] = useState<RangePreset>('90d')
   const [severity, setSeverity] = useState<Severity | ''>('')
   const [category, setCategory] = useState<string>('')
 
@@ -132,28 +133,16 @@ export default function AnalyticsPage() {
               ))}
             </select>
           </div>
-          <div className="flex items-center gap-2">
-            <Label htmlFor="start-date" className="text-xs whitespace-nowrap">From</Label>
-            <Input
-              id="start-date"
-              type="date"
-              value={startDate}
-              max={endDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="h-8 text-xs w-36"
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <Label htmlFor="end-date" className="text-xs whitespace-nowrap">To</Label>
-            <Input
-              id="end-date"
-              type="date"
-              value={endDate}
-              min={startDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="h-8 text-xs w-36"
-            />
-          </div>
+          <DateRangePicker
+            start={startDate}
+            end={endDate}
+            preset={range}
+            onChange={({ start, end, preset }) => {
+              setStartDate(start)
+              setEndDate(end)
+              setRange(preset)
+            }}
+          />
         </div>
       </div>
 

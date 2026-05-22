@@ -11,11 +11,13 @@ from app.core.dependencies import get_current_user, get_db
 from app.core.roles import UserRole
 from app.models.user import User
 from app.schemas.dashboard import (
+    ActionQueueResponse,
     DashboardSummaryResponse,
     ScoreHistoryResponse,
     ScoreTotalsBySeverityResponse,
 )
 from app.services.dashboard_service import (
+    build_action_queue,
     build_score_history,
     build_score_totals_by_severity,
     build_summary,
@@ -57,3 +59,12 @@ def get_score_totals_by_severity(
     return build_score_totals_by_severity(
         db, start, end, scope_owner_id=_scope_owner_id(current_user)
     )
+
+
+@router.get("/action-queue")
+def get_action_queue(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+    limit: Annotated[int, Query(ge=1, le=200)] = 20,
+) -> ActionQueueResponse:
+    return build_action_queue(db, scope_owner_id=_scope_owner_id(current_user), limit=limit)

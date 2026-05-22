@@ -1,6 +1,64 @@
 {
   "components": {
     "schemas": {
+      "ActionQueueItem": {
+        "properties": {
+          "days_overdue": {
+            "title": "Days Overdue",
+            "type": "integer"
+          },
+          "due_date": {
+            "title": "Due Date",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "review",
+              "response"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "risk_id": {
+            "title": "Risk Id",
+            "type": "string"
+          },
+          "risk_title": {
+            "title": "Risk Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "risk_id",
+          "risk_title",
+          "due_date",
+          "days_overdue"
+        ],
+        "title": "ActionQueueItem",
+        "type": "object"
+      },
+      "ActionQueueResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ActionQueueItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "ActionQueueResponse",
+        "type": "object"
+      },
       "ApiKeyCreate": {
         "properties": {
           "expires_in_days": {
@@ -4117,6 +4175,67 @@
         "summary": "Sso Login",
         "tags": [
           "SSO"
+        ]
+      }
+    },
+    "/api/dashboard/action-queue": {
+      "get": {
+        "operationId": "get_action_queue_api_dashboard_action_queue_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionQueueResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Action Queue",
+        "tags": [
+          "Dashboard"
         ]
       }
     },
