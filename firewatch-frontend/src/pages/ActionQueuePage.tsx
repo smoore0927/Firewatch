@@ -43,7 +43,7 @@ export default function ActionQueuePage() {
           {data && data.items.length > 0 && (
             <AlertTriangle className="h-5 w-5 text-destructive" />
           )}
-          Action Queue
+          Overdue Items
         </h1>
         <p className="text-muted-foreground text-sm">{subtitle}</p>
       </div>

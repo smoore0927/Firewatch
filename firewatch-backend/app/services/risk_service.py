@@ -20,10 +20,27 @@ from typing import Callable
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from app.models.risk import Risk, RiskAssessment, RiskHistory, RiskResponse, RiskStatus
+from app.models.risk import Risk, RiskAssessment, RiskHistory, RiskResponse, ResponseStatus, RiskStatus
 from app.models.user import User, UserRole
-from app.schemas.risk import AssessmentCreate, ResponseCreate, RiskCreate, RiskUpdate
+from app.schemas.risk import AssessmentCreate, ResponseCreate, ResponseUpdate, RiskCreate, RiskUpdate
 from app.services import events
+
+
+# Fields whose changes are surfaced as risk.changed notifications.
+# "owner" appears in change lists only when paired with other changes (a pure
+# reassignment is already reported via risk.assigned).
+_TRACKED_FIELDS = {
+    "status": "status",
+    "title": "title",
+    "category": "category",
+    "description": "description",
+    "threat_source": "threat_source",
+    "threat_event": "threat_event",
+    "vulnerability": "vulnerability",
+    "affected_asset": "affected_asset",
+    "review_frequency_days": "review_frequency_days",
+    "next_review_date": "next_review_date",
+}
 
 
 def _to_str(value: object) -> str | None:
@@ -223,6 +240,9 @@ class RiskService:
         old_owner_id = risk.owner_id
         new_owner_id = old_owner_id
 
+        # Collect the human-readable field names that changed, for risk.changed.
+        changed_fields: list[str] = []
+
         # Write a history row for every field that actually changed.
         # _to_str() handles enum values correctly (stores "open" not "RiskStatus.open").
         for field, new_value in update_fields.items():
@@ -239,12 +259,17 @@ class RiskService:
                 if field == "owner_id":
                     owner_changed = True
                     new_owner_id = new_value
+                if field in _TRACKED_FIELDS:
+                    changed_fields.append(_TRACKED_FIELDS[field])
 
         # If either scoring value was sent, create a new assessment row
+        score_changed = False
         if new_likelihood is not None or new_impact is not None:
             latest = risk.assessments[0] if risk.assessments else None
             lh = new_likelihood if new_likelihood is not None else (latest.likelihood if latest else 1)
             im = new_impact if new_impact is not None else (latest.impact if latest else 1)
+            if latest is None or latest.likelihood != lh or latest.impact != im:
+                score_changed = True
             self.db.add(RiskAssessment(
                 risk_id=risk.id,
                 likelihood=lh,
@@ -254,6 +279,9 @@ class RiskService:
             ))
             if risk.review_frequency_days:
                 risk.next_review_date = date.today() + timedelta(days=risk.review_frequency_days)
+
+        if score_changed:
+            changed_fields.append("score")
 
         self.db.commit()
         self.db.refresh(risk)
@@ -266,6 +294,19 @@ class RiskService:
                 data={
                     "new_owner_id": new_owner_id,
                     "previous_owner_id": old_owner_id,
+                },
+                actor={"id": updated_by.id, "email": updated_by.email},
+            )
+
+        # Emit risk.changed for non-reassignment edits when actor != post-update owner.
+        notify_owner_id = new_owner_id
+        if changed_fields and updated_by.id != notify_owner_id:
+            events.emit_sync(
+                "risk.changed",
+                subject={"risk_id": risk.risk_id, "title": risk.title},
+                data={
+                    "owner_id": notify_owner_id,
+                    "changes": changed_fields,
                 },
                 actor={"id": updated_by.id, "email": updated_by.email},
             )
@@ -286,6 +327,13 @@ class RiskService:
         if data.residual_likelihood is not None and data.residual_impact is not None:
             residual_score = data.residual_likelihood * data.residual_impact
 
+        latest = risk.assessments[0] if risk.assessments else None
+        score_changed = (
+            latest is None
+            or latest.likelihood != data.likelihood
+            or latest.impact != data.impact
+        )
+
         self.db.add(RiskAssessment(
             risk_id=risk.id,
             likelihood=data.likelihood,
@@ -301,6 +349,15 @@ class RiskService:
             risk.next_review_date = date.today() + timedelta(days=risk.review_frequency_days)
         self.db.commit()
         self.db.refresh(risk)
+
+        if score_changed and assessed_by.id != risk.owner_id:
+            events.emit_sync(
+                "risk.changed",
+                subject={"risk_id": risk.risk_id, "title": risk.title},
+                data={"owner_id": risk.owner_id, "changes": ["score"]},
+                actor={"id": assessed_by.id, "email": assessed_by.email},
+            )
+
         return risk
 
     # -----------------------------------------------------------------------
@@ -326,6 +383,61 @@ class RiskService:
         self.db.commit()
         self.db.refresh(risk)
         return risk
+
+    def update_response(
+        self, risk_id: str, response_id: int, data: ResponseUpdate, updated_by: User
+    ) -> Risk:
+        risk = self._get_active_risk(risk_id)
+        self._check_edit_permission(risk, updated_by)
+
+        response = (
+            self.db.query(RiskResponse)
+            .filter(RiskResponse.id == response_id, RiskResponse.risk_id == risk.id)
+            .first()
+        )
+        if response is None:
+            raise HTTPException(status_code=404, detail="Response not found")
+
+        update_data = data.model_dump(exclude_unset=True)
+
+        # Auto-stamp completion_date when transitioning to completed without an explicit date.
+        if (
+            update_data.get("status") == ResponseStatus.completed
+            and response.status != ResponseStatus.completed
+            and "completion_date" not in update_data
+        ):
+            update_data["completion_date"] = datetime.now(timezone.utc)
+
+        # Clear completion_date when moving away from completed if caller didn't override.
+        if (
+            update_data.get("status") is not None
+            and update_data["status"] != ResponseStatus.completed
+            and response.status == ResponseStatus.completed
+            and "completion_date" not in update_data
+        ):
+            update_data["completion_date"] = None
+
+        for field, value in update_data.items():
+            setattr(response, field, value)
+
+        self.db.commit()
+        self.db.refresh(risk)
+        return risk
+
+    def delete_response(self, risk_id: str, response_id: int, deleted_by: User) -> None:
+        risk = self._get_active_risk(risk_id)
+        self._check_edit_permission(risk, deleted_by)
+
+        response = (
+            self.db.query(RiskResponse)
+            .filter(RiskResponse.id == response_id, RiskResponse.risk_id == risk.id)
+            .first()
+        )
+        if response is None:
+            raise HTTPException(status_code=404, detail="Response not found")
+
+        self.db.delete(response)
+        self.db.commit()
 
     # -----------------------------------------------------------------------
     # Delete (soft)

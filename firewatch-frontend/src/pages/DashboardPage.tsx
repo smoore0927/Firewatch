@@ -1,19 +1,19 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
-import { AlertTriangle, ChevronDown, ChevronRight, ChevronUp, Download } from 'lucide-react'
-import { dashboardApi, ApiError } from '@/services/api'
-import type { ActionQueueResponse, DashboardSummary, ScoreTotalsBySeverityResponse, Severity } from '@/types'
+import { AlertTriangle, ChevronRight, Download, X } from 'lucide-react'
+import { dashboardApi, risksApi, ApiError } from '@/services/api'
+import { currentScore, scoreLabel } from '@/types'
+import type { ActionQueueResponse, DashboardSummary, Risk, ScoreTotalsBySeverityResponse, Severity } from '@/types'
+import { Badge, scoreToBadgeVariant } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
-import ActionQueueRow from '@/components/dashboard/ActionQueueRow'
 import ExportReportDialog from '@/components/dashboard/ExportReportDialog'
 import { DateRangePicker, type RangePreset } from '@/components/DateRangePicker'
-
-const DASHBOARD_ACTION_LIMIT = 3
+import NotificationBell from '@/components/layout/NotificationBell'
 
 const SEVERITY_COLORS: Record<Severity, string> = {
   low: '#22c55e',
@@ -32,7 +32,10 @@ const SEVERITY_LABELS: Record<Severity, string> = {
 const SEVERITY_KEYS: Severity[] = ['low', 'medium', 'high', 'critical']
 
 function toDateStr(d: Date): string {
-  return d.toISOString().split('T')[0]
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 function cellColor(score: number): string {
@@ -42,11 +45,21 @@ function cellColor(score: number): string {
   return 'bg-green-500 text-white'
 }
 
+function effectiveLI(risk: Risk): { likelihood: number; impact: number } | null {
+  const a = risk.assessments[0]
+  if (!a) return null
+  if (a.residual_likelihood != null && a.residual_impact != null) {
+    return { likelihood: a.residual_likelihood, impact: a.residual_impact }
+  }
+  return { likelihood: a.likelihood, impact: a.impact }
+}
+
 export default function DashboardPage() {
   const { user } = useAuth()
   const scopeLabel = user?.role === 'risk_owner' ? 'Showing your risks' : 'Showing all risks'
 
   const [summary, setSummary] = useState<DashboardSummary | null>(null)
+  const [risks, setRisks] = useState<Risk[]>([])
   const [actionQueue, setActionQueue] = useState<ActionQueueResponse | null>(null)
   const hasOverdue = (actionQueue?.items.length ?? 0) > 0
   const [isLoading, setIsLoading] = useState(true)
@@ -67,18 +80,9 @@ export default function DashboardPage() {
     critical: true,
   })
   const [exportOpen, setExportOpen] = useState(false)
-  const [actionQueueCollapsed, setActionQueueCollapsed] = useState<boolean>(() => {
-    return localStorage.getItem('dashboard.actionQueue.collapsed') === '1'
-  })
-
-  function toggleActionQueueCollapsed() {
-    setActionQueueCollapsed((prev) => {
-      const next = !prev
-      localStorage.setItem('dashboard.actionQueue.collapsed', next ? '1' : '0')
-      return next
-    })
-  }
-
+  const [selectedCell, setSelectedCell] = useState<{ likelihood: number; impact: number } | null>(null)
+  const [drillPage, setDrillPage] = useState(1)
+  const [drillPageSize, setDrillPageSize] = useState(5)
   const matrixRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<HTMLDivElement>(null)
 
@@ -102,8 +106,41 @@ export default function DashboardPage() {
   }, [startDate, endDate])
 
   useEffect(() => {
-    dashboardApi.getActionQueue(DASHBOARD_ACTION_LIMIT).then(setActionQueue).catch(() => {})
+    dashboardApi.getActionQueue(1).then(setActionQueue).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    risksApi.list().then((data) => setRisks(data.items)).catch(() => {})
+  }, [])
+
+  const matrixCounts = useMemo(() => {
+    const grid: number[][] = Array.from({ length: 5 }, () => Array<number>(5).fill(0))
+    for (const r of risks) {
+      if (r.status !== 'open' && r.status !== 'in_progress') continue
+      const li = effectiveLI(r)
+      if (!li) continue
+      if (li.likelihood < 1 || li.likelihood > 5 || li.impact < 1 || li.impact > 5) continue
+      grid[li.likelihood - 1][li.impact - 1] += 1
+    }
+    return grid
+  }, [risks])
+
+  const selectedRisks = useMemo(() => {
+    if (!selectedCell) return []
+    return risks.filter((r) => {
+      if (r.status !== 'open' && r.status !== 'in_progress') return false
+      const li = effectiveLI(r)
+      if (!li) return false
+      return li.likelihood === selectedCell.likelihood && li.impact === selectedCell.impact
+    })
+  }, [risks, selectedCell])
+
+  const pagedSelectedRisks = useMemo(() => {
+    const start = (drillPage - 1) * drillPageSize
+    return selectedRisks.slice(start, start + drillPageSize)
+  }, [selectedRisks, drillPage, drillPageSize])
+
+  useEffect(() => { setDrillPage(1) }, [selectedCell])
 
   return (
     <div className="space-y-6">
@@ -114,6 +151,7 @@ export default function DashboardPage() {
           <p className="text-sm text-muted-foreground">{scopeLabel}</p>
         </div>
         <div className="flex items-center gap-2">
+          <NotificationBell />
           <DateRangePicker
             start={startDate}
             end={endDate}
@@ -144,61 +182,27 @@ export default function DashboardPage() {
 
       {!isLoading && summary && (
         <div className="space-y-4">
-          <Card className={cn(hasOverdue && 'border-l-4 border-l-destructive bg-destructive/5')}>
-            <CardHeader className="pb-2">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <CardTitle className="text-sm font-medium flex items-center gap-2">
-                    {hasOverdue && <AlertTriangle className="h-4 w-4 text-destructive" />}
-                    Action Queue
-                  </CardTitle>
-                  <CardDescription>Overdue items to address</CardDescription>
-                </div>
-                <button
-                  type="button"
-                  onClick={toggleActionQueueCollapsed}
-                  aria-label={actionQueueCollapsed ? 'Expand Action Queue' : 'Collapse Action Queue'}
-                  aria-expanded={!actionQueueCollapsed}
-                  className="text-muted-foreground hover:text-foreground p-1 -m-1"
+          <Card className={cn(hasOverdue && 'border-l-4 border-l-destructive bg-destructive/15 dark:bg-destructive/25')}>
+            <div className="flex items-center gap-3 px-5 py-3">
+              {hasOverdue && <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />}
+              <span className="text-sm font-medium">Overdue Items</span>
+              <span className="text-sm text-muted-foreground">·</span>
+              {actionQueue === null && (
+                <span className="text-sm text-muted-foreground">Loading…</span>
+              )}
+              {actionQueue !== null && actionQueue.total === 0 && (
+                <span className="text-sm text-muted-foreground">You're all caught up.</span>
+              )}
+              {actionQueue !== null && actionQueue.total > 0 && (
+                <Link
+                  to="/action-queue"
+                  className="text-sm text-primary hover:underline inline-flex items-center gap-1"
                 >
-                  {actionQueueCollapsed
-                    ? <ChevronDown className="h-4 w-4" />
-                    : <ChevronUp className="h-4 w-4" />}
-                </button>
-              </div>
-            </CardHeader>
-            {!actionQueueCollapsed && (
-              <CardContent>
-                {actionQueue === null && (
-                  <p className="text-sm text-muted-foreground">Loading…</p>
-                )}
-                {actionQueue !== null && actionQueue.items.length === 0 && (
-                  <p className="text-sm text-muted-foreground">You're all caught up — no overdue items.</p>
-                )}
-                {actionQueue !== null && actionQueue.items.length > 0 && (
-                  <>
-                    <ul className="divide-y divide-border">
-                      {actionQueue.items.map((item) => (
-                        <li key={`${item.kind}-${item.risk_id}-${item.due_date}`}>
-                          <ActionQueueRow item={item} />
-                        </li>
-                      ))}
-                    </ul>
-                    {actionQueue.total > actionQueue.items.length && (
-                      <div className="pt-3 mt-2 border-t border-border">
-                        <Link
-                          to="/action-queue"
-                          className="text-xs text-primary hover:underline inline-flex items-center gap-1"
-                        >
-                          View all {actionQueue.total} overdue items
-                          <ChevronRight className="h-3 w-3" />
-                        </Link>
-                      </div>
-                    )}
-                  </>
-                )}
-              </CardContent>
-            )}
+                  View {actionQueue.total} overdue {actionQueue.total === 1 ? 'item' : 'items'}
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Link>
+              )}
+            </div>
           </Card>
 
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
@@ -237,7 +241,7 @@ export default function DashboardPage() {
                 <CardTitle className="text-sm font-medium">Overdue Responses</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className={cn('text-3xl font-bold', summary.overdue_responses > 0 && 'text-red-600')}>
+                <p className={cn('text-3xl font-bold', summary.overdue_responses > 0 && 'text-red-600 dark:text-red-400')}>
                   {summary.overdue_responses}
                 </p>
                 <CardDescription>Past target date</CardDescription>
@@ -249,7 +253,7 @@ export default function DashboardPage() {
                 <CardTitle className="text-sm font-medium">Overdue Reviews</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className={cn('text-3xl font-bold', summary.overdue_reviews > 0 && 'text-red-600')}>
+                <p className={cn('text-3xl font-bold', summary.overdue_reviews > 0 && 'text-red-600 dark:text-red-400')}>
                   {summary.overdue_reviews}
                 </p>
                 <CardDescription>Past review date</CardDescription>
@@ -260,7 +264,10 @@ export default function DashboardPage() {
           <div className="flex flex-col lg:flex-row gap-4">
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">Risk Matrix</CardTitle>
+                <CardTitle className="text-sm font-medium">Risk heatmap</CardTitle>
+                <CardDescription>
+                  Open and in-progress risks by likelihood × impact. Click a cell to see the risks. Uses residual score when available.
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <div ref={matrixRef} className="flex gap-3 items-start bg-background p-2">
@@ -280,18 +287,43 @@ export default function DashboardPage() {
                       <div key={likelihood} className="flex items-center gap-1">
                         <span className="text-xs text-muted-foreground w-4 text-right">{likelihood}</span>
                         {[1, 2, 3, 4, 5].map((impact) => {
-                          const count = summary.risk_matrix[likelihood - 1]?.[impact - 1] ?? 0
+                          const count = matrixCounts[likelihood - 1]?.[impact - 1] ?? 0
                           const score = likelihood * impact
+                          const isSelected =
+                            selectedCell?.likelihood === likelihood && selectedCell?.impact === impact
+                          const baseClass = cn(
+                            'w-11 h-11 flex items-center justify-center rounded-lg text-sm font-bold',
+                            cellColor(score),
+                            isSelected && 'ring-2 ring-primary ring-offset-2',
+                          )
+                          if (count === 0) {
+                            return (
+                              <div
+                                key={impact}
+                                className={cn(baseClass, 'cursor-default')}
+                                aria-label={`No risks at likelihood ${likelihood}, impact ${impact}`}
+                              >
+                                {''}
+                              </div>
+                            )
+                          }
                           return (
-                            <div
+                            <button
                               key={impact}
-                              className={cn(
-                                'w-11 h-11 flex items-center justify-center rounded-lg text-sm font-bold',
-                                cellColor(score),
-                              )}
+                              type="button"
+                              aria-pressed={isSelected}
+                              aria-label={`${count} risks at likelihood ${likelihood}, impact ${impact}`}
+                              onClick={() =>
+                                setSelectedCell((prev) =>
+                                  prev?.likelihood === likelihood && prev?.impact === impact
+                                    ? null
+                                    : { likelihood, impact },
+                                )
+                              }
+                              className={cn(baseClass, 'cursor-pointer hover:opacity-90')}
                             >
-                              {count > 0 ? count : ''}
-                            </div>
+                              {count}
+                            </button>
                           )
                         })}
                       </div>
@@ -373,6 +405,97 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
           </div>
+
+          {selectedCell && (
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <CardTitle className="text-sm font-medium">
+                      Risks at likelihood {selectedCell.likelihood}, impact {selectedCell.impact}
+                    </CardTitle>
+                    <CardDescription>
+                      Open and in-progress risks bucketed using residual score when available.
+                    </CardDescription>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCell(null)}
+                    aria-label="Clear selected cell"
+                    className="text-muted-foreground hover:text-foreground p-1 -m-1"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {selectedRisks.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No matching risks.</p>
+                ) : (
+                  <>
+                    <ul className="divide-y divide-border">
+                      {pagedSelectedRisks.map((risk) => {
+                        const score = currentScore(risk)
+                        return (
+                          <li key={risk.id} className="flex items-center gap-3 py-2">
+                            <span className="font-mono text-xs text-muted-foreground w-20 shrink-0">
+                              {risk.risk_id}
+                            </span>
+                            <Link
+                              to={`/risks/${risk.risk_id}`}
+                              className="flex-1 min-w-0 truncate text-sm font-medium hover:underline"
+                            >
+                              {risk.title}
+                            </Link>
+                            {score !== null ? (
+                              <Badge variant={scoreToBadgeVariant(score)}>
+                                {score} — {scoreLabel(score)}
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground italic text-xs">Unscored</span>
+                            )}
+                            <Badge variant={risk.status}>
+                              {risk.status.replace('_', ' ')}
+                            </Badge>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                    {(() => {
+                      const totalPages = Math.max(1, Math.ceil(selectedRisks.length / drillPageSize))
+                      return (
+                        <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                          <div className="flex items-center gap-2">
+                            <label htmlFor="drill-page-size">Per page</label>
+                            <select
+                              id="drill-page-size"
+                              value={drillPageSize}
+                              onChange={(e) => { setDrillPageSize(Number(e.target.value)); setDrillPage(1) }}
+                              className="rounded-md border border-input bg-background px-2 py-1 text-xs"
+                            >
+                              {[5, 10, 25, 50, 100].map((n) => (
+                                <option key={n} value={n}>{n}</option>
+                              ))}
+                            </select>
+                            <span>· {selectedRisks.length} total</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button size="sm" variant="outline" disabled={drillPage <= 1} onClick={() => setDrillPage((p) => p - 1)}>
+                              Previous
+                            </Button>
+                            <span>Page {drillPage} of {totalPages}</span>
+                            <Button size="sm" variant="outline" disabled={drillPage >= totalPages} onClick={() => setDrillPage((p) => p + 1)}>
+                              Next
+                            </Button>
+                          </div>
+                        </div>
+                      )
+                    })()}
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 

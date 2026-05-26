@@ -16,3 +16,4 @@ from app.models.webhook import (  # noqa: F401
     DeliveryStatus,
 )
 from app.models.scheduler import SchedulerState  # noqa: F401
+from app.models.notification import Notification, NotificationType  # noqa: F401

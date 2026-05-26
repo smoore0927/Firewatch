@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import bisect
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone, tzinfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
@@ -20,6 +21,16 @@ from app.schemas.dashboard import (
     ScoreTotalsBySeverityPoint,
     ScoreTotalsBySeverityResponse,
 )
+
+
+def _resolve_tz(tz: str | None) -> tzinfo:
+    """Return the user's IANA timezone, defaulting to UTC. Falls back to UTC if invalid."""
+    if not tz or tz == "UTC":
+        return timezone.utc
+    try:
+        return ZoneInfo(tz)
+    except ZoneInfoNotFoundError:
+        return timezone.utc
 
 
 def build_summary(
@@ -154,16 +165,16 @@ def build_score_history(
     end: date,
     *,
     scope_owner_id: int | None = None,
+    tz: str | None = None,
 ) -> ScoreHistoryResponse:
-    start_dt = datetime.combine(start, time.min, tzinfo=timezone.utc)
-    end_dt = datetime.combine(end, time.max, tzinfo=timezone.utc)
+    user_tz = _resolve_tz(tz)
+    start_dt = datetime.combine(start, time.min, tzinfo=user_tz).astimezone(timezone.utc)
+    end_dt = datetime.combine(end, time.max, tzinfo=user_tz).astimezone(timezone.utc)
 
+    # Bucket in Python on the user's local date — SQL func.date() returns the
+    # UTC calendar date and misbuckets assessments near day boundaries.
     query = (
-        db.query(
-            func.date(RiskAssessment.assessed_at).label("day"),
-            func.avg(RiskAssessment.risk_score).label("avg_score"),
-            func.count(RiskAssessment.id).label("cnt"),
-        )
+        db.query(RiskAssessment.assessed_at, RiskAssessment.risk_score)
         .join(Risk, Risk.id == RiskAssessment.risk_id)
         .filter(Risk.deleted_at.is_(None))
         .filter(RiskAssessment.assessed_at >= start_dt)
@@ -171,16 +182,22 @@ def build_score_history(
     )
     if scope_owner_id is not None:
         query = query.filter(Risk.owner_id == scope_owner_id)
-    rows = (
-        query.group_by(func.date(RiskAssessment.assessed_at))
-        .order_by(func.date(RiskAssessment.assessed_at))
-        .all()
-    )
+
+    buckets: dict[str, list[int]] = {}
+    for assessed_at, risk_score in query.all():
+        if assessed_at.tzinfo is None:
+            assessed_at = assessed_at.replace(tzinfo=timezone.utc)
+        key = assessed_at.astimezone(user_tz).date().isoformat()
+        buckets.setdefault(key, []).append(risk_score)
 
     return ScoreHistoryResponse(
         points=[
-            ScoreHistoryPoint(date=str(row.day), avg_score=round(row.avg_score, 1), count=row.cnt)
-            for row in rows
+            ScoreHistoryPoint(
+                date=key,
+                avg_score=round(sum(scores) / len(scores), 1),
+                count=len(scores),
+            )
+            for key, scores in sorted(buckets.items())
         ]
     )
 
@@ -191,6 +208,7 @@ def build_score_totals_by_severity(
     end: date,
     *,
     scope_owner_id: int | None = None,
+    tz: str | None = None,
 ) -> ScoreTotalsBySeverityResponse:
     """Cumulative time-series of active-risk score totals bucketed by severity.
 
@@ -213,6 +231,7 @@ def build_score_totals_by_severity(
 
     # 2. Pull every assessment for those risks, ordered for grouping.
     #    Tiebreak on id so assessments in the same second are deterministic.
+    #    Each event stores the effective score: residual when present, else raw.
     assessments_by_risk: dict[int, list[tuple[datetime, int]]] = {}
     if risk_ids:
         rows = (
@@ -220,18 +239,20 @@ def build_score_totals_by_severity(
                 RiskAssessment.risk_id,
                 RiskAssessment.assessed_at,
                 RiskAssessment.risk_score,
+                RiskAssessment.residual_risk_score,
             )
             .filter(RiskAssessment.risk_id.in_(risk_ids))
             .order_by(RiskAssessment.risk_id, RiskAssessment.assessed_at, RiskAssessment.id)
             .all()
         )
-        for risk_id, assessed_at, risk_score in rows:
+        for risk_id, assessed_at, risk_score, residual_risk_score in rows:
             # SQLite drops tzinfo even with DateTime(timezone=True). Normalise
             # to UTC-aware so comparisons against the tz-aware end-of-day
             # boundary don't raise TypeError.
             if assessed_at.tzinfo is None:
                 assessed_at = assessed_at.replace(tzinfo=timezone.utc)
-            assessments_by_risk.setdefault(risk_id, []).append((assessed_at, risk_score))
+            effective_score = residual_risk_score if residual_risk_score is not None else risk_score
+            assessments_by_risk.setdefault(risk_id, []).append((assessed_at, effective_score))
 
     # Pre-extract the sorted timestamp keys per risk for bisect.
     timestamps_by_risk: dict[int, list[datetime]] = {
@@ -279,10 +300,11 @@ def build_score_totals_by_severity(
         return timeline[idx][1]
 
     # 3. Emit one point per day, walking [start, end] inclusive.
+    user_tz = _resolve_tz(tz)
     points: list[ScoreTotalsBySeverityPoint] = []
     current = start
     while current <= end:
-        end_of_day = datetime.combine(current, time.max, tzinfo=timezone.utc)
+        end_of_day = datetime.combine(current, time.max, tzinfo=user_tz).astimezone(timezone.utc)
         low = medium = high = critical = 0
         for rid, events in assessments_by_risk.items():
             # Skip risks that were in a terminal status as of this day.

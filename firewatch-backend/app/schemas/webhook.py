@@ -5,7 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_serializer
+
+from app.schemas._datetime import serialize_utc_datetime
 
 
 # Single source of truth for the event-type vocabulary. Adding a new event type
@@ -45,6 +47,10 @@ class WebhookSubscriptionResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    @field_serializer("created_at", "last_delivered_at")
+    def _ser_datetimes(self, dt: datetime | None) -> str | None:
+        return serialize_utc_datetime(dt)
+
 
 class WebhookSubscriptionCreatedResponse(WebhookSubscriptionResponse):
     # Plaintext HMAC secret — shown exactly once on create, never returned again.
@@ -63,6 +69,10 @@ class WebhookDeliveryResponse(BaseModel):
     completed_at: datetime | None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("created_at", "completed_at")
+    def _ser_datetimes(self, dt: datetime | None) -> str | None:
+        return serialize_utc_datetime(dt)
 
 
 class WebhookDeliveryListResponse(BaseModel):

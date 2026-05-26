@@ -16,9 +16,10 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 
 from app.models.risk import ResponseStatus, ResponseType, RiskStatus
+from app.schemas._datetime import serialize_utc_datetime
 
 
 # ---------------------------------------------------------------------------
@@ -46,6 +47,10 @@ class AssessmentResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
+    @field_serializer("assessed_at")
+    def _ser_assessed_at(self, dt: datetime) -> str | None:
+        return serialize_utc_datetime(dt)
+
 
 # ---------------------------------------------------------------------------
 # Response schemas (risk response / mitigation plan)
@@ -67,6 +72,18 @@ class ResponseCreate(BaseModel):
     notes: Optional[str] = None
 
 
+class ResponseUpdate(BaseModel):
+    response_type: Optional[ResponseType] = None
+    mitigation_strategy: Optional[str] = Field(default=None, min_length=1)
+    owner_id: Optional[int] = None
+    start_date: Optional[datetime] = None
+    target_date: Optional[datetime] = None
+    completion_date: Optional[datetime] = None
+    status: Optional[ResponseStatus] = None
+    cost_estimate: Optional[Decimal] = None
+    notes: Optional[str] = None
+
+
 class ResponseOut(BaseModel):
     id: int
     response_type: ResponseType
@@ -81,6 +98,10 @@ class ResponseOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_serializer("start_date", "target_date", "completion_date", "created_at")
+    def _ser_datetimes(self, dt: datetime | None) -> str | None:
+        return serialize_utc_datetime(dt)
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +166,10 @@ class HistoryResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
+    @field_serializer("changed_at")
+    def _ser_changed_at(self, dt: datetime) -> str | None:
+        return serialize_utc_datetime(dt)
+
 
 class RiskResponse(BaseModel):
     id: int
@@ -171,6 +196,10 @@ class RiskResponse(BaseModel):
     history: list[HistoryResponse] = []
 
     model_config = {"from_attributes": True}
+
+    @field_serializer("created_at", "updated_at")
+    def _ser_datetimes(self, dt: datetime | None) -> str | None:
+        return serialize_utc_datetime(dt)
 
 
 class RiskListResponse(BaseModel):

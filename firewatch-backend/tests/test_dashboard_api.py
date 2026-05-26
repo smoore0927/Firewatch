@@ -401,6 +401,275 @@ def test_score_totals_reflects_latest_assessment(
         assert by_date[d]["high"] == 20
 
 
+def test_score_totals_prefers_residual_score_when_present(
+    client, admin_user, login_as, db
+):
+    """Assessments with a residual score bucket on residual, not inherent score."""
+    login_as(admin_user)
+    day = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
+
+    # Risk A: inherent score 20 (high), residual 4 (low). Should bucket as low=4.
+    risk_a = Risk(
+        risk_id="RISK-RES-A",
+        title="Residual A",
+        owner_id=admin_user.id,
+        created_by_id=admin_user.id,
+        status=RiskStatus.open,
+    )
+    db.add(risk_a)
+    db.flush()
+    db.add(RiskAssessment(
+        risk_id=risk_a.id,
+        likelihood=4,
+        impact=5,
+        risk_score=20,
+        residual_likelihood=2,
+        residual_impact=2,
+        residual_risk_score=4,
+        assessed_by_id=admin_user.id,
+        assessed_at=day,
+    ))
+
+    # Risk B: inherent score 9 (medium), no residual. Should bucket as medium=9.
+    risk_b = Risk(
+        risk_id="RISK-RES-B",
+        title="Residual B",
+        owner_id=admin_user.id,
+        created_by_id=admin_user.id,
+        status=RiskStatus.open,
+    )
+    db.add(risk_b)
+    db.flush()
+    db.add(RiskAssessment(
+        risk_id=risk_b.id,
+        likelihood=3,
+        impact=3,
+        risk_score=9,
+        assessed_by_id=admin_user.id,
+        assessed_at=day,
+    ))
+    db.commit()
+
+    resp = client.get(
+        "/api/dashboard/score-totals-by-severity",
+        params={"start": "2026-05-01", "end": "2026-05-01"},
+    )
+    assert resp.status_code == 200
+    points = resp.json()["points"]
+    assert len(points) == 1
+    p = points[0]
+    # Risk A contributes 4 to low (its residual), not 20 to high.
+    # Risk B contributes 9 to medium (no residual, so inherent).
+    assert p["low"] == 4
+    assert p["medium"] == 9
+    assert p["high"] == 0
+    assert p["critical"] == 0
+
+
+def test_score_totals_respects_user_timezone_for_day_boundary(
+    admin_user, db
+):
+    """A late-evening PDT assessment lands in the next UTC day; tz must shift it back.
+
+    UTC 2026-05-26 02:00 == America/Los_Angeles 2026-05-25 19:00 (PDT, UTC-7).
+    With tz='America/Los_Angeles' the May 25 point should include the assessment;
+    with the default UTC behavior it must not (the assessment's UTC date is May 26).
+    """
+    from app.services.dashboard_service import build_score_totals_by_severity
+
+    late_evening_pdt = datetime(2026, 5, 26, 2, 0, tzinfo=timezone.utc)
+    _seed_risk_with_assessment(
+        db, owner=admin_user, score=10, assessed_at=late_evening_pdt
+    )
+
+    # tz=America/Los_Angeles: May 25 (LA) end-of-day is 2026-05-26 06:59:59.999999 UTC,
+    # which includes the 02:00 UTC assessment.
+    la_resp = build_score_totals_by_severity(
+        db, date(2026, 5, 25), date(2026, 5, 25), tz="America/Los_Angeles"
+    )
+    assert len(la_resp.points) == 1
+    assert la_resp.points[0].date == "2026-05-25"
+    assert la_resp.points[0].medium == 10
+
+    # tz=UTC (explicit): May 25 ends at 2026-05-25 23:59:59.999999 UTC,
+    # so the 2026-05-26 02:00 UTC assessment is excluded.
+    utc_resp = build_score_totals_by_severity(
+        db, date(2026, 5, 25), date(2026, 5, 25), tz="UTC"
+    )
+    assert len(utc_resp.points) == 1
+    assert utc_resp.points[0].medium == 0
+
+    # tz=None: defaults to UTC. Same exclusion as above.
+    default_resp = build_score_totals_by_severity(
+        db, date(2026, 5, 25), date(2026, 5, 25)
+    )
+    assert len(default_resp.points) == 1
+    assert default_resp.points[0].medium == 0
+
+
+def test_score_totals_reported_et_overflow_scenario(admin_user, db):
+    """Reproduce the reported ET-overflow bug exactly.
+
+    Assessment at 2026-05-26T01:00:00Z is 2026-05-25 21:00 in America/New_York.
+    With tz=America/New_York:
+      * Single day 5/25..5/25 must include the assessment.
+      * Single day 5/26..5/26 must also include it (cumulative carry-forward).
+      * Window 5/25..5/26 must include it on both days.
+    """
+    from app.services.dashboard_service import build_score_totals_by_severity
+
+    overflow = datetime(2026, 5, 26, 1, 0, tzinfo=timezone.utc)
+    _seed_risk_with_assessment(
+        db, owner=admin_user, score=10, assessed_at=overflow
+    )
+
+    resp_25 = build_score_totals_by_severity(
+        db, date(2026, 5, 25), date(2026, 5, 25), tz="America/New_York"
+    )
+    assert len(resp_25.points) == 1
+    assert resp_25.points[0].date == "2026-05-25"
+    assert resp_25.points[0].medium == 10, (
+        "ET-local-day 5/25 must include the 2026-05-26T01:00Z assessment "
+        "(which is 5/25 21:00 ET)"
+    )
+
+    resp_26 = build_score_totals_by_severity(
+        db, date(2026, 5, 26), date(2026, 5, 26), tz="America/New_York"
+    )
+    assert len(resp_26.points) == 1
+    assert resp_26.points[0].date == "2026-05-26"
+    assert resp_26.points[0].medium == 10, (
+        "ET-local-day 5/26 must also include the assessment (carry-forward)"
+    )
+
+    resp_both = build_score_totals_by_severity(
+        db, date(2026, 5, 25), date(2026, 5, 26), tz="America/New_York"
+    )
+    assert len(resp_both.points) == 2
+    by_date = {p.date: p for p in resp_both.points}
+    assert by_date["2026-05-25"].medium == 10
+    assert by_date["2026-05-26"].medium == 10
+
+
+def test_score_totals_et_overflow_with_residual_score(admin_user, db):
+    """ET-overflow assessment with a residual score buckets on residual, on the ET day."""
+    from app.services.dashboard_service import build_score_totals_by_severity
+
+    overflow = datetime(2026, 5, 26, 1, 0, tzinfo=timezone.utc)
+    _seed_counter["n"] += 1
+    risk = Risk(
+        risk_id=f"RISK-{_seed_counter['n']:04d}",
+        title=f"Residual ET {_seed_counter['n']}",
+        owner_id=admin_user.id,
+        created_by_id=admin_user.id,
+        status=RiskStatus.open,
+    )
+    db.add(risk)
+    db.flush()
+    db.add(RiskAssessment(
+        risk_id=risk.id,
+        likelihood=2,
+        impact=5,
+        risk_score=10,
+        residual_likelihood=2,
+        residual_impact=2,
+        residual_risk_score=4,
+        assessed_by_id=admin_user.id,
+        assessed_at=overflow,
+    ))
+    db.commit()
+
+    resp = build_score_totals_by_severity(
+        db, date(2026, 5, 25), date(2026, 5, 26), tz="America/New_York"
+    )
+    assert len(resp.points) == 2
+    by_date = {p.date: p for p in resp.points}
+    # Residual (4, low) is used, not inherent (10, medium). ET day 5/25 must
+    # reflect the assessment (it's 5/25 21:00 ET, not 5/26).
+    assert by_date["2026-05-25"].low == 4
+    assert by_date["2026-05-25"].medium == 0
+    assert by_date["2026-05-26"].low == 4
+    assert by_date["2026-05-26"].medium == 0
+
+
+def test_score_totals_et_underflow_with_residual_score(admin_user, db):
+    """Inverse: UTC 5/25 03:00 == ET 5/24 23:00; assessment must show on 5/24 ET."""
+    from app.services.dashboard_service import build_score_totals_by_severity
+
+    underflow = datetime(2026, 5, 25, 3, 0, tzinfo=timezone.utc)
+    _seed_counter["n"] += 1
+    risk = Risk(
+        risk_id=f"RISK-{_seed_counter['n']:04d}",
+        title=f"Residual ET Underflow {_seed_counter['n']}",
+        owner_id=admin_user.id,
+        created_by_id=admin_user.id,
+        status=RiskStatus.open,
+    )
+    db.add(risk)
+    db.flush()
+    db.add(RiskAssessment(
+        risk_id=risk.id,
+        likelihood=2,
+        impact=5,
+        risk_score=10,
+        residual_likelihood=2,
+        residual_impact=2,
+        residual_risk_score=4,
+        assessed_by_id=admin_user.id,
+        assessed_at=underflow,
+    ))
+    db.commit()
+
+    resp = build_score_totals_by_severity(
+        db, date(2026, 5, 24), date(2026, 5, 25), tz="America/New_York"
+    )
+    assert len(resp.points) == 2
+    by_date = {p.date: p for p in resp.points}
+    # ET day 5/24 must include the assessment (which is 5/24 23:00 ET).
+    assert by_date["2026-05-24"].low == 4
+    assert by_date["2026-05-24"].medium == 0
+    # And 5/25 still carries it forward.
+    assert by_date["2026-05-25"].low == 4
+    assert by_date["2026-05-25"].medium == 0
+
+
+def test_score_history_respects_user_timezone_for_day_boundary(admin_user, db):
+    """An ET-overflow assessment must bucket on the ET local day, not the UTC day.
+
+    UTC 2026-05-26 01:00 == America/New_York 2026-05-25 21:00 (EDT, UTC-4).
+    With tz=America/New_York the assessment must appear on 2026-05-25, not 5/26.
+    """
+    from app.services.dashboard_service import build_score_history
+
+    overflow = datetime(2026, 5, 26, 1, 0, tzinfo=timezone.utc)
+    _seed_risk_with_assessment(
+        db, owner=admin_user, score=10, assessed_at=overflow
+    )
+
+    # tz=America/New_York: 5/25 window covers UTC 5/25 04:00 .. 5/26 03:59:59.999999,
+    # so the 5/26 01:00 UTC assessment is included AND bucketed under 5/25 ET.
+    ny_resp = build_score_history(
+        db, date(2026, 5, 25), date(2026, 5, 25), tz="America/New_York"
+    )
+    assert len(ny_resp.points) == 1
+    assert ny_resp.points[0].date == "2026-05-25"
+    assert ny_resp.points[0].count == 1
+    assert ny_resp.points[0].avg_score == 10.0
+
+    # tz=UTC: the assessment is on 5/26 UTC, so 5/25 returns nothing.
+    utc_resp = build_score_history(
+        db, date(2026, 5, 25), date(2026, 5, 25), tz="UTC"
+    )
+    assert utc_resp.points == []
+
+    # tz=UTC, window 5/26..5/26: assessment shows on its UTC date.
+    utc_resp_26 = build_score_history(
+        db, date(2026, 5, 26), date(2026, 5, 26), tz="UTC"
+    )
+    assert len(utc_resp_26.points) == 1
+    assert utc_resp_26.points[0].date == "2026-05-26"
+
+
 def test_score_totals_returns_one_point_per_day(client, admin_user, login_as):
     """A 7-day window emits exactly 7 points, even with no data."""
     login_as(admin_user)

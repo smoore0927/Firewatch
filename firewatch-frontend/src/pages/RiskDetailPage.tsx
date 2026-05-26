@@ -14,11 +14,14 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { risksApi, usersApi, ApiError } from '@/services/api'
 import { currentScore, scoreLabel } from '@/types'
-import type { Risk, RiskAssessment, RiskHistory, RiskStatus, User } from '@/types'
+import type { Risk, RiskAssessment, RiskHistory, RiskResponse, RiskStatus, ResponseCreate, ResponseStatus, ResponseType, ResponseUpdate, User } from '@/types'
 import { Badge, scoreToBadgeVariant } from '@/components/ui/badge'
 import type { BadgeVariant } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, Pencil, Trash2, ArrowUp, ArrowDown, Minus, RefreshCw, ChevronDown, ChevronRight, X, MoreHorizontal } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { ArrowLeft, Pencil, Trash2, ArrowUp, ArrowDown, Minus, Plus, RefreshCw, ChevronDown, ChevronRight, X, MoreHorizontal } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -49,11 +52,11 @@ function statusLabel(val: string | null | undefined): string {
 // Mirrors the badge variant classes so the inline status select inherits the
 // same colour as the badge it replaces.
 const STATUS_COLORS: Record<RiskStatus, string> = {
-  open:        'bg-blue-100  text-blue-800',
-  in_progress: 'bg-purple-100 text-purple-800',
-  mitigated:   'bg-green-100 text-green-800',
-  accepted:    'bg-gray-100  text-gray-700',
-  closed:      'bg-gray-200  text-gray-500',
+  open:        'bg-blue-100   text-blue-800   dark:bg-blue-900/40   dark:text-blue-200',
+  in_progress: 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200',
+  mitigated:   'bg-green-100  text-green-800  dark:bg-green-900/40  dark:text-green-200',
+  accepted:    'bg-gray-100   text-gray-700   dark:bg-gray-800      dark:text-gray-300',
+  closed:      'bg-gray-200   text-gray-500   dark:bg-gray-700      dark:text-gray-400',
 }
 
 const LIKELIHOOD_LABELS: Record<number, string> = {
@@ -187,7 +190,7 @@ function truncate(value: string | null | undefined, max = 80): string {
 function ScoreArrow({ score, prevScore }: Readonly<{ score: number; prevScore: number | null }>) {
   if (prevScore === null) return <Minus className="h-4 w-4 text-muted-foreground" />
   if (score > prevScore)  return <ArrowUp className="h-4 w-4 text-destructive" />
-  if (score < prevScore)  return <ArrowDown className="h-4 w-4 text-green-600" />
+  if (score < prevScore)  return <ArrowDown className="h-4 w-4 text-green-600 dark:text-green-400" />
   return <Minus className="h-4 w-4 text-muted-foreground" />
 }
 
@@ -500,6 +503,484 @@ function DeleteConfirmDialog({
   )
 }
 
+// ---- Response Plans ---------------------------------------------------------
+
+const RESPONSE_TYPE_LABELS: Record<ResponseType, string> = {
+  mitigate: 'Mitigate',
+  accept:   'Accept',
+  transfer: 'Transfer',
+  avoid:    'Avoid',
+}
+
+const RESPONSE_STATUS_LABELS: Record<ResponseStatus, string> = {
+  planned:     'Planned',
+  in_progress: 'In Progress',
+  completed:   'Completed',
+  deferred:    'Deferred',
+}
+
+const RESPONSE_STATUS_COLORS: Record<ResponseStatus, string> = {
+  planned:     'bg-blue-100   text-blue-800   dark:bg-blue-900/40   dark:text-blue-200',
+  in_progress: 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200',
+  completed:   'bg-green-100  text-green-800  dark:bg-green-900/40  dark:text-green-200',
+  deferred:    'bg-gray-100   text-gray-700   dark:bg-gray-800      dark:text-gray-300',
+}
+
+function responseStatusVariant(val: ResponseStatus): BadgeVariant {
+  // Reuse risk-status badge variants where the colour intent matches.
+  const map: Record<ResponseStatus, BadgeVariant> = {
+    planned:     'open',
+    in_progress: 'in_progress',
+    completed:   'mitigated',
+    deferred:    'accepted',
+  }
+  return map[val]
+}
+
+function isOverdue(targetDate: string | null, status: ResponseStatus): boolean {
+  if (!targetDate || status === 'completed') return false
+  const t = new Date(targetDate)
+  t.setHours(0, 0, 0, 0)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return t.getTime() < today.getTime()
+}
+
+function dateInputValue(iso: string | null): string {
+  return iso ? iso.slice(0, 10) : ''
+}
+
+function toIsoOrNull(dateString: string): string | null {
+  if (!dateString) return null
+  return new Date(dateString).toISOString()
+}
+
+type ResponseFormState = {
+  response_type:        ResponseType
+  mitigation_strategy:  string
+  target_date:          string
+  notes:                string
+}
+
+const EMPTY_FORM: ResponseFormState = {
+  response_type:       'mitigate',
+  mitigation_strategy: '',
+  target_date:         '',
+  notes:               '',
+}
+
+function ResponseForm({
+  initial,
+  isSubmitting,
+  errorMessage,
+  submitLabel,
+  onSubmit,
+  onCancel,
+  idPrefix,
+}: Readonly<{
+  initial: ResponseFormState
+  isSubmitting: boolean
+  errorMessage: string | null
+  submitLabel: string
+  onSubmit: (next: ResponseFormState) => void
+  onCancel: () => void
+  idPrefix: string
+}>) {
+  const [form, setForm] = useState<ResponseFormState>(initial)
+
+  function handleSubmit(e: SyntheticEvent<HTMLFormElement>) {
+    e.preventDefault()
+    onSubmit(form)
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-3 rounded-md border bg-muted/20 p-4" noValidate>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label htmlFor={`${idPrefix}-type`}>Response type <span aria-hidden="true" className="text-destructive">*</span></Label>
+          <select
+            id={`${idPrefix}-type`}
+            value={form.response_type}
+            onChange={(e) => setForm((p) => ({ ...p, response_type: e.target.value as ResponseType }))}
+            disabled={isSubmitting}
+            required
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+          >
+            {(Object.keys(RESPONSE_TYPE_LABELS) as ResponseType[]).map((t) => (
+              <option key={t} value={t}>{RESPONSE_TYPE_LABELS[t]}</option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor={`${idPrefix}-target-date`}>Target date</Label>
+          <Input
+            id={`${idPrefix}-target-date`}
+            type="date"
+            value={form.target_date}
+            onChange={(e) => setForm((p) => ({ ...p, target_date: e.target.value }))}
+            disabled={isSubmitting}
+          />
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <Label htmlFor={`${idPrefix}-strategy`}>Mitigation strategy <span aria-hidden="true" className="text-destructive">*</span></Label>
+        <Textarea
+          id={`${idPrefix}-strategy`}
+          value={form.mitigation_strategy}
+          onChange={(e) => setForm((p) => ({ ...p, mitigation_strategy: e.target.value }))}
+          disabled={isSubmitting}
+          required
+          rows={3}
+        />
+      </div>
+
+      <div className="space-y-1">
+        <Label htmlFor={`${idPrefix}-notes`}>Notes</Label>
+        <Textarea
+          id={`${idPrefix}-notes`}
+          value={form.notes}
+          onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))}
+          disabled={isSubmitting}
+          rows={2}
+        />
+      </div>
+
+      {errorMessage && (
+        <p className="text-sm text-destructive">{errorMessage}</p>
+      )}
+
+      <div className="flex items-center gap-2">
+        <Button type="submit" size="sm" disabled={isSubmitting}>
+          {isSubmitting ? 'Saving…' : submitLabel}
+        </Button>
+        <Button type="button" size="sm" variant="ghost" disabled={isSubmitting} onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  )
+}
+
+function ResponseRow({
+  response,
+  canEdit,
+  riskId,
+  isEditing,
+  isDeleteConfirming,
+  onStartEdit,
+  onCancelEdit,
+  onEditSaved,
+  onAskDelete,
+  onCancelDelete,
+  onConfirmDelete,
+  onStatusQuickChange,
+}: Readonly<{
+  response: RiskResponse
+  canEdit: boolean
+  riskId: string
+  isEditing: boolean
+  isDeleteConfirming: boolean
+  onStartEdit: () => void
+  onCancelEdit: () => void
+  onEditSaved: () => void
+  onAskDelete: () => void
+  onCancelDelete: () => void
+  onConfirmDelete: () => Promise<void>
+  onStatusQuickChange: (newStatus: ResponseStatus) => Promise<void>
+}>) {
+  const [editError, setEditError] = useState<string | null>(null)
+  const [isSavingEdit, setIsSavingEdit] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [isSavingStatus, setIsSavingStatus] = useState(false)
+
+  const overdue = isOverdue(response.target_date, response.status)
+  const hasDates = response.target_date || response.completion_date
+
+  async function handleEditSubmit(form: ResponseFormState) {
+    setEditError(null)
+    setIsSavingEdit(true)
+    try {
+      const payload: ResponseUpdate = {}
+      if (form.response_type !== response.response_type) {
+        payload.response_type = form.response_type
+      }
+      if (form.mitigation_strategy !== response.mitigation_strategy) {
+        payload.mitigation_strategy = form.mitigation_strategy
+      }
+      const originalTarget = dateInputValue(response.target_date)
+      if (form.target_date !== originalTarget) {
+        payload.target_date = form.target_date ? toIsoOrNull(form.target_date) : null
+      }
+      const originalNotes = response.notes ?? ''
+      if (form.notes !== originalNotes) {
+        payload.notes = form.notes || null
+      }
+      if (Object.keys(payload).length === 0) {
+        onCancelEdit()
+        return
+      }
+      await risksApi.updateResponse(riskId, response.id, payload)
+      onEditSaved()
+    } catch (err) {
+      setEditError(err instanceof ApiError ? err.message : 'Could not update this response.')
+    } finally {
+      setIsSavingEdit(false)
+    }
+  }
+
+  async function handleDeleteConfirm() {
+    setIsDeleting(true)
+    try {
+      await onConfirmDelete()
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  async function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const next = e.target.value as ResponseStatus
+    if (next === response.status) return
+    setIsSavingStatus(true)
+    try {
+      await onStatusQuickChange(next)
+    } finally {
+      setIsSavingStatus(false)
+    }
+  }
+
+  return (
+    <li className="px-5 py-4 text-sm space-y-2">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge variant="outline" className="capitalize">
+            {RESPONSE_TYPE_LABELS[response.response_type]}
+          </Badge>
+          {canEdit ? (
+            <div className={`relative inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium gap-1 ${RESPONSE_STATUS_COLORS[response.status]} ${isSavingStatus ? 'opacity-50' : ''}`}>
+              <span>{RESPONSE_STATUS_LABELS[response.status]}</span>
+              <ChevronDown className="h-3 w-3 shrink-0 opacity-60" />
+              <select
+                value={response.status}
+                onChange={handleStatusChange}
+                disabled={isSavingStatus}
+                aria-label={`Change response status for response ${response.id}`}
+                className="absolute inset-0 w-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
+              >
+                {(Object.keys(RESPONSE_STATUS_LABELS) as ResponseStatus[]).map((s) => (
+                  <option key={s} value={s}>{RESPONSE_STATUS_LABELS[s]}</option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <Badge variant={responseStatusVariant(response.status)}>
+              {RESPONSE_STATUS_LABELS[response.status]}
+            </Badge>
+          )}
+          {overdue && (
+            <Badge variant="destructive">Overdue</Badge>
+          )}
+        </div>
+        {canEdit && !isEditing && !isDeleteConfirming && (
+          <div className="flex items-center gap-1 shrink-0">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0"
+              aria-label={`Edit response ${response.id}`}
+              onClick={onStartEdit}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+              aria-label={`Delete response ${response.id}`}
+              onClick={onAskDelete}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {!isEditing && (
+        <>
+          <p>{response.mitigation_strategy}</p>
+          {hasDates && (
+            <p className="text-xs text-muted-foreground">
+              {response.target_date && (
+                <span>Target: {new Date(response.target_date).toLocaleDateString()}</span>
+              )}
+              {response.target_date && response.completion_date && <span>{' · '}</span>}
+              {response.completion_date && (
+                <span>Completed: {new Date(response.completion_date).toLocaleDateString()}</span>
+              )}
+            </p>
+          )}
+          {response.notes && (
+            <p className="text-xs text-muted-foreground italic">"{response.notes}"</p>
+          )}
+        </>
+      )}
+
+      {isEditing && (
+        <ResponseForm
+          initial={{
+            response_type:       response.response_type,
+            mitigation_strategy: response.mitigation_strategy,
+            target_date:         dateInputValue(response.target_date),
+            notes:               response.notes ?? '',
+          }}
+          isSubmitting={isSavingEdit}
+          errorMessage={editError}
+          submitLabel="Save"
+          onSubmit={handleEditSubmit}
+          onCancel={() => { setEditError(null); onCancelEdit() }}
+          idPrefix={`response-edit-${response.id}`}
+        />
+      )}
+
+      {isDeleteConfirming && (
+        <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs">
+          <span className="text-destructive">Delete this response?</span>
+          <Button
+            type="button"
+            size="sm"
+            variant="destructive"
+            disabled={isDeleting}
+            onClick={handleDeleteConfirm}
+          >
+            {isDeleting ? 'Deleting…' : 'Yes, delete'}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={isDeleting}
+            onClick={onCancelDelete}
+          >
+            Cancel
+          </Button>
+        </div>
+      )}
+    </li>
+  )
+}
+
+function ResponsePlans({
+  risk,
+  canEdit,
+  onChanged,
+}: Readonly<{
+  risk: Risk
+  canEdit: boolean
+  onChanged: () => void
+}>) {
+  const [isCreating, setIsCreating] = useState(false)
+  const [isSavingCreate, setIsSavingCreate] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [editingResponseId, setEditingResponseId] = useState<number | null>(null)
+  const [deletingResponseId, setDeletingResponseId] = useState<number | null>(null)
+
+  async function handleCreate(form: ResponseFormState) {
+    setCreateError(null)
+    setIsSavingCreate(true)
+    try {
+      const payload: ResponseCreate = {
+        response_type:       form.response_type,
+        mitigation_strategy: form.mitigation_strategy,
+        ...(form.target_date && { target_date: toIsoOrNull(form.target_date) }),
+        ...(form.notes && { notes: form.notes }),
+      }
+      await risksApi.addResponse(risk.risk_id, payload)
+      setIsCreating(false)
+      onChanged()
+    } catch (err) {
+      setCreateError(err instanceof ApiError ? err.message : 'Could not add this response.')
+    } finally {
+      setIsSavingCreate(false)
+    }
+  }
+
+  async function handleDelete(responseId: number) {
+    try {
+      await risksApi.deleteResponse(risk.risk_id, responseId)
+      setDeletingResponseId(null)
+      onChanged()
+    } catch {
+      // Leave the confirm UI open on failure; user can retry or cancel.
+    }
+  }
+
+  async function handleStatusChange(responseId: number, status: ResponseStatus) {
+    await risksApi.updateResponse(risk.risk_id, responseId, { status })
+    onChanged()
+  }
+
+  return (
+    <div className="rounded-lg border overflow-hidden">
+      <div className="px-5 py-4 border-b flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Response Plans
+        </h2>
+        {canEdit && !isCreating && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="gap-1"
+            onClick={() => { setCreateError(null); setIsCreating(true) }}
+          >
+            <Plus className="h-3 w-3" /> Add response
+          </Button>
+        )}
+      </div>
+
+      {isCreating && (
+        <div className="px-5 py-4 border-b">
+          <ResponseForm
+            initial={EMPTY_FORM}
+            isSubmitting={isSavingCreate}
+            errorMessage={createError}
+            submitLabel="Save"
+            onSubmit={handleCreate}
+            onCancel={() => { setCreateError(null); setIsCreating(false) }}
+            idPrefix="response-create"
+          />
+        </div>
+      )}
+
+      {risk.responses.length === 0 ? (
+        <p className="px-5 py-4 text-sm text-muted-foreground">No response plans yet.</p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {risk.responses.map((r) => (
+            <ResponseRow
+              key={r.id}
+              response={r}
+              canEdit={canEdit}
+              riskId={risk.risk_id}
+              isEditing={editingResponseId === r.id}
+              isDeleteConfirming={deletingResponseId === r.id}
+              onStartEdit={() => { setDeletingResponseId(null); setEditingResponseId(r.id) }}
+              onCancelEdit={() => setEditingResponseId(null)}
+              onEditSaved={() => { setEditingResponseId(null); onChanged() }}
+              onAskDelete={() => { setEditingResponseId(null); setDeletingResponseId(r.id) }}
+              onCancelDelete={() => setDeletingResponseId(null)}
+              onConfirmDelete={() => handleDelete(r.id)}
+              onStatusQuickChange={(status) => handleStatusChange(r.id, status)}
+            />
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 // ---- Component --------------------------------------------------------------
 
 export default function RiskDetailPage() {
@@ -763,9 +1244,7 @@ export default function RiskDetailPage() {
               </Badge>
               {latestAssessment && (
                 <p className="text-xs text-muted-foreground">
-                  Likelihood: <span className="font-medium">{latestAssessment.likelihood} — {LIKELIHOOD_LABELS[latestAssessment.likelihood]}</span>
-                  {' · '}
-                  Impact: <span className="font-medium">{latestAssessment.impact} — {LIKELIHOOD_LABELS[latestAssessment.impact]}</span>
+                  Inherent: <span className="font-medium">{latestAssessment.likelihood} × {latestAssessment.impact} = {latestAssessment.risk_score}</span>
                 </p>
               )}
               {latestAssessment?.residual_risk_score != null && (
@@ -791,7 +1270,7 @@ export default function RiskDetailPage() {
                 <div className="space-y-2">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
-                      <label htmlFor="assess-residual-likelihood" className="text-xs font-medium">Likelihood</label>
+                      <label htmlFor="assess-residual-likelihood" className="text-xs font-medium">Residual Likelihood</label>
                       <select
                         id="assess-residual-likelihood"
                         value={assessForm.residual_likelihood}
@@ -806,7 +1285,7 @@ export default function RiskDetailPage() {
                       </select>
                     </div>
                     <div className="space-y-1">
-                      <label htmlFor="assess-residual-impact" className="text-xs font-medium">Impact</label>
+                      <label htmlFor="assess-residual-impact" className="text-xs font-medium">Residual Impact</label>
                       <select
                         id="assess-residual-impact"
                         value={assessForm.residual_impact}
@@ -927,6 +1406,9 @@ export default function RiskDetailPage() {
         </dl>
       </div>
 
+      {/* ---- Responses ---- */}
+      <ResponsePlans risk={risk} canEdit={canEdit} onChanged={loadRisk} />
+
       {/* ---- Activity timeline ---- */}
       {timeline.length > 0 && (
         <div className="rounded-lg border overflow-hidden">
@@ -959,33 +1441,6 @@ export default function RiskDetailPage() {
               {timelineExpanded ? 'Show less' : `Show ${timeline.length - TIMELINE_PREVIEW} more`}
             </button>
           )}
-        </div>
-      )}
-
-      {/* ---- Responses ---- */}
-      {risk.responses.length > 0 && (
-        <div className="rounded-lg border overflow-hidden">
-          <div className="px-5 py-4 border-b">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Response Plans
-            </h2>
-          </div>
-          <ul className="divide-y divide-border">
-            {risk.responses.map((r) => (
-              <li key={r.id} className="px-5 py-4 text-sm">
-                <div className="flex items-center gap-2 mb-1">
-                  <Badge variant="outline" className="capitalize">{r.response_type}</Badge>
-                  <Badge variant={statusVariant(r.status)} className="capitalize">{r.status.replace('_', ' ')}</Badge>
-                </div>
-                <p>{r.mitigation_strategy}</p>
-                {r.target_date && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Target: {new Date(r.target_date).toLocaleDateString()}
-                  </p>
-                )}
-              </li>
-            ))}
-          </ul>
         </div>
       )}
 

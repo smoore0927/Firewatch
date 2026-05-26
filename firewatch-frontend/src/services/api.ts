@@ -74,9 +74,20 @@ async function request<T>(
         detail = body.detail
       } else if (Array.isArray(body.detail) && body.detail.length > 0) {
         // Pydantic v2 validation errors: detail is [{msg, loc, type}, ...]
-        detail = body.detail.map((e: { msg: string }) =>
-          e.msg.replace(/^value error,\s*/i, '')
-        ).join('; ')
+        const fieldLabels: Record<string, string> = {
+          mitigation_strategy: 'Mitigation strategy',
+          target_date: 'Target date',
+          response_type: 'Response type',
+        }
+        detail = body.detail.map((e: { msg: string; loc?: string[]; type?: string }) => {
+          const fieldParts = (e.loc ?? []).filter((s: string) => s !== 'body')
+          const field = fieldParts[fieldParts.length - 1] ?? ''
+          const label = fieldLabels[field] ?? field.replace(/_/g, ' ')
+          if (e.type === 'string_too_short' || /at least \d+ character/i.test(e.msg)) {
+            return label ? `${label} is required.` : 'A required field is missing.'
+          }
+          return e.msg.replace(/^value error,\s*/i, '')
+        }).join('; ')
       }
     } catch { /* response had no JSON body */ }
     throw new ApiError(res.status, detail)
@@ -120,7 +131,7 @@ export const authApi = {
 // Risks
 // -------------------------------------------------------------------------
 
-import type { ActionQueueResponse, ApiKey, ApiKeyCreated, ApiKeyWithOwner, AuditLogListResponse, BulkReassignRequest, BulkRescoreRequest, BulkRiskResult, BulkStatusRequest, DashboardSummary, ImportResult, ResidualReductionResponse, Risk, RiskCreate, RiskListResponse, RiskReport, RiskUpdate, ScoreHistoryResponse, ScoreTotalsBySeverityResponse, Severity, User, UserRole, VelocityMTTMResponse, VelocityThroughputResponse, WebhookDeliveryList, WebhookSubscription, WebhookSubscriptionCreate, WebhookSubscriptionCreated, WebhookSubscriptionUpdate } from '@/types'
+import type { ActionQueueResponse, ApiKey, ApiKeyCreated, ApiKeyWithOwner, AuditLogListResponse, BulkReassignRequest, BulkRescoreRequest, BulkRiskResult, BulkStatusRequest, DashboardSummary, ImportResult, MarkAllReadResponse, NotificationListResponse, ResidualReductionResponse, ResponseCreate, ResponseUpdate, Risk, RiskCreate, RiskListResponse, RiskReport, RiskUpdate, ScoreHistoryResponse, ScoreTotalsBySeverityResponse, Severity, UnreadCountResponse, User, UserRole, VelocityMTTMResponse, VelocityThroughputResponse, WebhookDeliveryList, WebhookSubscription, WebhookSubscriptionCreate, WebhookSubscriptionCreated, WebhookSubscriptionUpdate } from '@/types'
 
 // Parses a Content-Disposition header value to extract the filename.
 // Handles both `filename="x.csv"` and the RFC 5987 `filename*=UTF-8''x.csv` form.
@@ -264,6 +275,15 @@ export const risksApi = {
 
   bulkRescore: (data: BulkRescoreRequest) =>
     request<BulkRiskResult>('/api/risks/bulk/rescore', { method: 'POST', body: JSON.stringify(data) }),
+
+  addResponse: (riskId: string, data: ResponseCreate) =>
+    request<Risk>(`/api/risks/${riskId}/responses`, { method: 'POST', body: JSON.stringify(data) }),
+
+  updateResponse: (riskId: string, responseId: number, data: ResponseUpdate) =>
+    request<Risk>(`/api/risks/${riskId}/responses/${responseId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  deleteResponse: (riskId: string, responseId: number) =>
+    request<void>(`/api/risks/${riskId}/responses/${responseId}`, { method: 'DELETE' }),
 }
 
 // -------------------------------------------------------------------------
@@ -343,19 +363,48 @@ export const webhooksApi = {
 }
 
 // -------------------------------------------------------------------------
+// Notifications
+// -------------------------------------------------------------------------
+
+export const notificationsApi = {
+  list: (params?: { unread_only?: boolean; limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams()
+    if (params?.unread_only) qs.set('unread_only', 'true')
+    if (params?.limit !== undefined) qs.set('limit', String(params.limit))
+    if (params?.offset !== undefined) qs.set('offset', String(params.offset))
+    const query = qs.toString() ? `?${qs.toString()}` : ''
+    return request<NotificationListResponse>(`/api/notifications${query}`)
+  },
+
+  unreadCount: () => request<UnreadCountResponse>('/api/notifications/unread-count'),
+
+  markRead: (id: number) =>
+    request<void>(`/api/notifications/${id}/read`, { method: 'POST' }),
+
+  markAllRead: () =>
+    request<MarkAllReadResponse>('/api/notifications/mark-all-read', { method: 'POST' }),
+}
+
+// -------------------------------------------------------------------------
 // Dashboard
 // -------------------------------------------------------------------------
 
 export const dashboardApi = {
   getSummary: () => request<DashboardSummary>('/api/dashboard/summary'),
 
-  getScoreHistory: (start: string, end: string) =>
-    request<ScoreHistoryResponse>(`/api/dashboard/score-history?start=${start}&end=${end}`),
+  getScoreHistory: (start: string, end: string) => {
+    const tz = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)
+    return request<ScoreHistoryResponse>(
+      `/api/dashboard/score-history?start=${start}&end=${end}&tz=${tz}`,
+    )
+  },
 
-  getScoreTotalsBySeverity: (start: string, end: string) =>
-    request<ScoreTotalsBySeverityResponse>(
-      `/api/dashboard/score-totals-by-severity?start=${start}&end=${end}`,
-    ),
+  getScoreTotalsBySeverity: (start: string, end: string) => {
+    const tz = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)
+    return request<ScoreTotalsBySeverityResponse>(
+      `/api/dashboard/score-totals-by-severity?start=${start}&end=${end}&tz=${tz}`,
+    )
+  },
 
   getActionQueue: (limit?: number) => {
     const query = limit === undefined ? '' : `?limit=${limit}`

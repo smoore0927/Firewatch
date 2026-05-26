@@ -90,12 +90,13 @@ export default function BulkStatusDialog({ open, riskIds, onClose, onDone }: Rea
             Change status of {riskIds.length} risk{riskIds.length === 1 ? '' : 's'} to {STATUS_LABELS[status]}?
           </p>
           <div className="space-y-1">
-            <label htmlFor="bulk-status-select" className="text-xs font-medium">Status</label>
+            <label htmlFor="bulk-status-select" className="text-xs font-medium">Status <span aria-hidden="true" className="text-destructive">*</span></label>
             <select
               id="bulk-status-select"
               value={status}
               onChange={(e) => setStatus(e.target.value as RiskStatus)}
               disabled={isSubmitting}
+              aria-required="true"
               className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
             >
               {(Object.keys(STATUS_LABELS) as RiskStatus[]).map((s) => (

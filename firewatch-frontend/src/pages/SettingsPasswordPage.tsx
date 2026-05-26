@@ -79,8 +79,8 @@ export default function SettingsPasswordPage() {
   return (
     <div className="max-w-md space-y-4">
       {user?.must_change_password && (
-        <div className="flex items-start gap-3 rounded-md border border-amber-400 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-amber-500" />
+        <div className="flex items-start gap-3 rounded-md border border-amber-400 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-200">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-amber-500 dark:text-amber-400" />
           <p>
             <strong>Password change required.</strong> Your account was set up by an administrator.
             Please set a personal password before you can access Firewatch.
@@ -110,7 +110,7 @@ export default function SettingsPasswordPage() {
             <form onSubmit={handleSubmit} className="space-y-4" noValidate>
 
               <div className="space-y-2">
-                <Label htmlFor="current-password">Current password</Label>
+                <Label htmlFor="current-password">Current password <span aria-hidden="true" className="text-destructive">*</span></Label>
                 <Input
                   id="current-password"
                   type="password"
@@ -123,7 +123,7 @@ export default function SettingsPasswordPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="new-password">New password</Label>
+                <Label htmlFor="new-password">New password <span aria-hidden="true" className="text-destructive">*</span></Label>
                 <Input
                   id="new-password"
                   type="password"
@@ -137,7 +137,7 @@ export default function SettingsPasswordPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="confirm-password">Confirm new password</Label>
+                <Label htmlFor="confirm-password">Confirm new password <span aria-hidden="true" className="text-destructive">*</span></Label>
                 <Input
                   id="confirm-password"
                   type="password"
@@ -156,7 +156,7 @@ export default function SettingsPasswordPage() {
               )}
 
               {success && (
-                <p role="status" className="text-sm text-green-600">
+                <p role="status" className="text-sm text-green-600 dark:text-green-400">
                   Password updated successfully.
                 </p>
               )}

@@ -493,6 +493,196 @@ def test_add_response_as_viewer_returns_403(
 
 
 # ---------------------------------------------------------------------------
+# PATCH /api/risks/{id}/responses/{response_id}
+# ---------------------------------------------------------------------------
+
+
+def _create_response(client, risk_id, **overrides) -> dict:
+    payload = {
+        "response_type": "mitigate",
+        "mitigation_strategy": "Initial plan",
+    }
+    payload.update(overrides)
+    resp = client.post(f"/api/risks/{risk_id}/responses", json=payload)
+    assert resp.status_code == 200, resp.text
+    return resp.json()["responses"][0]
+
+
+def test_update_response_changes_target_date_and_status(client, admin_user, login_as):
+    login_as(admin_user)
+    created = _create_risk(client)
+    response = _create_response(client, created["risk_id"])
+    new_target = "2026-12-31T00:00:00+00:00"
+    resp = client.patch(
+        f"/api/risks/{created['risk_id']}/responses/{response['id']}",
+        json={"status": "in_progress", "target_date": new_target},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    updated = next(r for r in body["responses"] if r["id"] == response["id"])
+    assert updated["status"] == "in_progress"
+    assert updated["target_date"].startswith("2026-12-31")
+
+
+def test_update_response_to_completed_auto_stamps_completion_date(
+    client, admin_user, login_as
+):
+    login_as(admin_user)
+    created = _create_risk(client)
+    response = _create_response(client, created["risk_id"])
+    assert response["completion_date"] is None
+    resp = client.patch(
+        f"/api/risks/{created['risk_id']}/responses/{response['id']}",
+        json={"status": "completed"},
+    )
+    assert resp.status_code == 200, resp.text
+    updated = next(
+        r for r in resp.json()["responses"] if r["id"] == response["id"]
+    )
+    assert updated["status"] == "completed"
+    assert updated["completion_date"] is not None
+
+
+def test_update_response_from_completed_clears_completion_date(
+    client, admin_user, login_as
+):
+    login_as(admin_user)
+    created = _create_risk(client)
+    response = _create_response(client, created["risk_id"])
+    # First mark completed (auto-stamps completion_date).
+    resp = client.patch(
+        f"/api/risks/{created['risk_id']}/responses/{response['id']}",
+        json={"status": "completed"},
+    )
+    assert resp.status_code == 200
+    completed = next(
+        r for r in resp.json()["responses"] if r["id"] == response["id"]
+    )
+    assert completed["completion_date"] is not None
+
+    # Now move back to in_progress; completion_date should be cleared.
+    resp = client.patch(
+        f"/api/risks/{created['risk_id']}/responses/{response['id']}",
+        json={"status": "in_progress"},
+    )
+    assert resp.status_code == 200
+    reverted = next(
+        r for r in resp.json()["responses"] if r["id"] == response["id"]
+    )
+    assert reverted["status"] == "in_progress"
+    assert reverted["completion_date"] is None
+
+
+def test_update_response_with_unknown_response_id_returns_404(
+    client, admin_user, login_as
+):
+    login_as(admin_user)
+    created = _create_risk(client)
+    resp = client.patch(
+        f"/api/risks/{created['risk_id']}/responses/99999",
+        json={"status": "in_progress"},
+    )
+    assert resp.status_code == 404
+
+
+def test_update_response_as_other_owner_returns_403(
+    client, admin_user, owner_user, login_as
+):
+    login_as(admin_user)
+    created = _create_risk(client, owner_id=admin_user.id)
+    response = _create_response(client, created["risk_id"])
+    client.post("/api/auth/logout")
+    client.cookies.clear()
+    login_as(owner_user)
+    resp = client.patch(
+        f"/api/risks/{created['risk_id']}/responses/{response['id']}",
+        json={"status": "in_progress"},
+    )
+    assert resp.status_code == 403
+
+
+def test_update_response_writes_audit_row(client, admin_user, login_as, db):
+    from app.models.audit_log import AuditLog
+
+    login_as(admin_user)
+    created = _create_risk(client)
+    response = _create_response(client, created["risk_id"])
+    resp = client.patch(
+        f"/api/risks/{created['risk_id']}/responses/{response['id']}",
+        json={"status": "in_progress"},
+    )
+    assert resp.status_code == 200
+    audit = (
+        db.query(AuditLog)
+        .filter(AuditLog.action == "risk.response.updated")
+        .order_by(AuditLog.id.desc())
+        .first()
+    )
+    assert audit is not None
+    assert audit.resource_id == created["risk_id"]
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/risks/{id}/responses/{response_id}
+# ---------------------------------------------------------------------------
+
+
+def test_delete_response_removes_row(client, admin_user, login_as):
+    login_as(admin_user)
+    created = _create_risk(client)
+    response = _create_response(client, created["risk_id"])
+    resp = client.delete(
+        f"/api/risks/{created['risk_id']}/responses/{response['id']}"
+    )
+    assert resp.status_code == 204
+    # Verify it's gone from the parent risk.
+    got = client.get(f"/api/risks/{created['risk_id']}").json()
+    assert all(r["id"] != response["id"] for r in got["responses"])
+
+
+def test_delete_response_unknown_id_returns_404(client, admin_user, login_as):
+    login_as(admin_user)
+    created = _create_risk(client)
+    resp = client.delete(f"/api/risks/{created['risk_id']}/responses/99999")
+    assert resp.status_code == 404
+
+
+def test_delete_response_as_viewer_returns_403(
+    client, admin_user, viewer_user, login_as
+):
+    login_as(admin_user)
+    created = _create_risk(client)
+    response = _create_response(client, created["risk_id"])
+    client.post("/api/auth/logout")
+    client.cookies.clear()
+    login_as(viewer_user)
+    resp = client.delete(
+        f"/api/risks/{created['risk_id']}/responses/{response['id']}"
+    )
+    assert resp.status_code == 403
+
+
+def test_delete_response_writes_audit_row(client, admin_user, login_as, db):
+    from app.models.audit_log import AuditLog
+
+    login_as(admin_user)
+    created = _create_risk(client)
+    response = _create_response(client, created["risk_id"])
+    resp = client.delete(
+        f"/api/risks/{created['risk_id']}/responses/{response['id']}"
+    )
+    assert resp.status_code == 204
+    audit = (
+        db.query(AuditLog)
+        .filter(AuditLog.action == "risk.response.deleted")
+        .order_by(AuditLog.id.desc())
+        .first()
+    )
+    assert audit is not None
+    assert audit.resource_id == created["risk_id"]
+
+
+# ---------------------------------------------------------------------------
 # CSV export / import / template
 # ---------------------------------------------------------------------------
 
@@ -943,3 +1133,60 @@ def test_bulk_routes_unauthenticated_returns_401(client):
         json={"risk_ids": ["RISK-001"], "status": "open"},
     )
     assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Datetime serialization — naive DB values must come back tz-aware (UTC)
+#
+# SQLite drops tzinfo from DateTime(timezone=True) columns. Without an explicit
+# serializer the API would emit ISO strings without an offset (e.g.
+# "2026-05-26T03:00:00"), which JS interprets as LOCAL time on the frontend
+# — shifting toLocaleDateString() by up to a day. Every datetime on a response
+# schema must include `Z` or `+00:00`.
+# ---------------------------------------------------------------------------
+
+
+def _has_utc_offset(value: str) -> bool:
+    return value.endswith("Z") or value.endswith("+00:00")
+
+
+def test_risk_response_datetimes_include_utc_offset(client, admin_user, login_as, db):
+    """Even with naive DB datetimes, every response datetime must end in Z/+00:00."""
+    login_as(admin_user)
+    created = _create_risk(client)
+
+    # Force the stored datetimes naive to simulate the SQLite tzinfo-stripping path.
+    row = db.query(Risk).filter_by(risk_id=created["risk_id"]).one()
+    row.created_at = row.created_at.replace(tzinfo=None)
+    for a in row.assessments:
+        a.assessed_at = a.assessed_at.replace(tzinfo=None)
+    db.commit()
+
+    resp = client.get(f"/api/risks/{created['risk_id']}")
+    assert resp.status_code == 200
+    body = resp.json()
+
+    assert _has_utc_offset(body["created_at"]), body["created_at"]
+    assert body["assessments"], "expected at least one assessment"
+    for a in body["assessments"]:
+        assert _has_utc_offset(a["assessed_at"]), a["assessed_at"]
+
+
+def test_risk_response_naive_db_datetime_serialized_as_utc(
+    client, admin_user, login_as, db
+):
+    """A naive 2026-05-26T03:00:00 row must serialize as 2026-05-26T03:00:00+00:00."""
+    from datetime import datetime as _dt
+
+    login_as(admin_user)
+    created = _create_risk(client)
+    row = db.query(Risk).filter_by(risk_id=created["risk_id"]).one()
+    naive_value = _dt(2026, 5, 26, 3, 0, 0)
+    row.assessments[0].assessed_at = naive_value
+    db.commit()
+
+    resp = client.get(f"/api/risks/{created['risk_id']}")
+    body = resp.json()
+    assessed_at = body["assessments"][0]["assessed_at"]
+    # Wire format must explicitly mark the value as UTC.
+    assert assessed_at == "2026-05-26T03:00:00+00:00", assessed_at

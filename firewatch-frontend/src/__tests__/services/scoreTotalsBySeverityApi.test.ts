@@ -21,15 +21,17 @@ describe('dashboardApi.getScoreTotalsBySeverity', () => {
     vi.unstubAllGlobals()
   })
 
-  it('builds the URL with the start and end query params', async () => {
+  it('builds the URL with start, end, and the browser tz query params', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ points: [] }))
 
     await dashboardApi.getScoreTotalsBySeverity('2026-01-01', '2026-02-01')
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [url, init] = fetchMock.mock.calls[0]
-    expect(url).toBe('/api/dashboard/score-totals-by-severity?start=2026-01-01&end=2026-02-01')
-    // request<T> uses fetch's default GET when no method is provided.
+    const expectedTz = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)
+    expect(url).toBe(
+      `/api/dashboard/score-totals-by-severity?start=2026-01-01&end=2026-02-01&tz=${expectedTz}`,
+    )
     expect(init?.method).toBeUndefined()
   })
 

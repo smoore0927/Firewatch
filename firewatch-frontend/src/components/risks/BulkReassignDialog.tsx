@@ -92,13 +92,14 @@ export default function BulkReassignDialog({ open, riskIds, onClose, onDone }: P
         <div className="mt-6 space-y-4">
           <div>
             <label htmlFor="bulk-reassign-owner" className="text-sm font-medium">
-              New owner
+              New owner <span aria-hidden="true" className="text-destructive">*</span>
             </label>
             <select
               id="bulk-reassign-owner"
               value={ownerId}
               onChange={(e) => setOwnerId(e.target.value ? Number(e.target.value) : '')}
               disabled={isLoadingUsers || isSubmitting}
+              aria-required="true"
               className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
             >
               <option value="">{isLoadingUsers ? 'Loading…' : 'Select a user…'}</option>

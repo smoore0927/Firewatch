@@ -28,6 +28,7 @@ import RisksPage from '@/pages/RisksPage'
 import RiskDetailPage from '@/pages/RiskDetailPage'
 import RiskFormPage from '@/pages/RiskFormPage'
 import SettingsPasswordPage from '@/pages/SettingsPasswordPage'
+import SettingsAppearancePage from '@/pages/SettingsAppearancePage'
 import SettingsUsersPage from '@/pages/SettingsUsersPage'
 import SettingsApiKeysPage from '@/pages/SettingsApiKeysPage'
 import SettingsWebhooksPage from '@/pages/SettingsWebhooksPage'
@@ -54,11 +55,15 @@ export default function App() {
           <Route path="/risks/:riskId/edit" element={<RiskFormPage mode="edit" />} />
 
           {/* /account kept as a redirect for backward compatibility */}
-          <Route path="/account" element={<Navigate to="/settings/password" replace />} />
+          <Route path="/account" element={<Navigate to="/settings/account/password" replace />} />
 
           <Route path="/settings" element={<SettingsLayout />}>
-            <Route index element={<Navigate to="password" replace />} />
-            <Route path="password" element={<SettingsPasswordPage />} />
+            <Route index element={<Navigate to="account/password" replace />} />
+            <Route path="account">
+              <Route index element={<Navigate to="password" replace />} />
+              <Route path="password" element={<SettingsPasswordPage />} />
+              <Route path="appearance" element={<SettingsAppearancePage />} />
+            </Route>
             <Route element={<AdminRoute />}>
               <Route path="users" element={<SettingsUsersPage />} />
               <Route path="webhooks" element={<SettingsWebhooksPage />} />

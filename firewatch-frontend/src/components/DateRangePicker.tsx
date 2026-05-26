@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { format, parseISO } from 'date-fns'
+import { useEffect, useState } from 'react'
+import { format, parseISO, subMonths } from 'date-fns'
 import { Calendar as CalendarIcon } from 'lucide-react'
 import type { DateRange } from 'react-day-picker'
 
@@ -48,6 +48,11 @@ interface Props {
 export function DateRangePicker({ start, end, preset, onChange }: Props) {
   const [open, setOpen] = useState(false)
   const [pendingRange, setPendingRange] = useState<DateRange | undefined>(undefined)
+  const [showCalendar, setShowCalendar] = useState(preset === 'custom')
+
+  useEffect(() => {
+    if (open) setShowCalendar(preset === 'custom')
+  }, [open, preset])
 
   const startDate = parseISO(start)
   const endDate = parseISO(end)
@@ -59,8 +64,7 @@ export function DateRangePicker({ start, end, preset, onChange }: Props) {
 
   function handlePresetClick(p: RangePreset) {
     if (p === 'custom') {
-      onChange({ start, end, preset: 'custom' })
-      setOpen(false)
+      setShowCalendar(true)
       return
     }
     const today = new Date()
@@ -103,7 +107,7 @@ export function DateRangePicker({ start, end, preset, onChange }: Props) {
       </PopoverTrigger>
       <PopoverContent align="end" className="flex w-auto flex-col gap-2 p-2" onKeyDown={(e) => { if (e.key === 'Enter') applyPending() }}>
         <div className="flex gap-2">
-          <div className="flex w-40 flex-col gap-1 border-r border-border pr-2">
+          <div className={cn('flex w-40 flex-col gap-1', showCalendar && 'border-r border-border pr-2')}>
             {PRESET_ORDER.map((p) => {
               const label = p === 'custom' ? 'Custom' : PRESET_LABELS[p]
               const active = preset === p
@@ -120,18 +124,26 @@ export function DateRangePicker({ start, end, preset, onChange }: Props) {
               )
             })}
           </div>
-          <Calendar
-            mode="range"
-            numberOfMonths={2}
-            selected={pendingRange}
-            onSelect={handleCalendarSelect}
-            defaultMonth={startDate}
-          />
+          {showCalendar && (
+            <Calendar
+              mode="range"
+              numberOfMonths={2}
+              selected={pendingRange}
+              onSelect={handleCalendarSelect}
+              defaultMonth={subMonths(new Date(), 1)}
+            />
+          )}
         </div>
-        {pendingRange?.from && pendingRange.to && (
+        {showCalendar && (
           <div className="flex justify-end gap-2 pt-2 border-t border-border">
             <Button size="sm" variant="outline" onClick={cancelPending}>Cancel</Button>
-            <Button size="sm" onClick={applyPending}>Apply</Button>
+            <Button
+              size="sm"
+              onClick={applyPending}
+              disabled={!pendingRange?.from || !pendingRange.to}
+            >
+              Apply
+            </Button>
           </div>
         )}
       </PopoverContent>

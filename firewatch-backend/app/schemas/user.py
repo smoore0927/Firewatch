@@ -11,9 +11,10 @@ Why separate Create/Response instead of one User schema?
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, EmailStr, field_validator, model_validator
+from pydantic import BaseModel, EmailStr, field_serializer, field_validator, model_validator
 
 from app.models.user import UserRole
+from app.schemas._datetime import serialize_utc_datetime
 from app.schemas._password_policy import validate_password_complexity
 
 
@@ -46,6 +47,10 @@ class UserResponse(BaseModel):
     # from_attributes=True tells Pydantic to read values from SQLAlchemy model
     # attributes rather than expecting a plain dict. Required for ORM integration.
     model_config = {"from_attributes": True}
+
+    @field_serializer("created_at")
+    def _ser_created_at(self, dt: datetime) -> str | None:
+        return serialize_utc_datetime(dt)
 
     @model_validator(mode="before")
     @classmethod
