@@ -135,7 +135,7 @@ export default function ImportRisksDialog({ open, onClose, onImported }: Props) 
         {/* Result panel replaces the file picker after a successful upload. */}
         {result ? (
           <div className="mt-6 space-y-4">
-            <div className="rounded-md border border-green-200 bg-green-50 p-4 dark:border-green-900 dark:bg-green-950">
+            <div className="rounded-md border border-green-200 bg-green-50 p-4 dark:border-green-900/50 dark:bg-green-950/40">
               <p className="font-medium text-green-800 dark:text-green-200">
                 ✓ {result.created} risk{result.created === 1 ? '' : 's'} imported
               </p>
@@ -172,7 +172,7 @@ export default function ImportRisksDialog({ open, onClose, onImported }: Props) 
                 <FileUp className="h-5 w-5 text-muted-foreground" />
                 <div className="flex flex-col">
                   <span className="text-sm font-medium">
-                    {file ? file.name : 'Choose a CSV file'}
+                    {file ? file.name : <>Choose a CSV file <span aria-hidden="true" className="text-destructive">*</span></>}
                   </span>
                   <span className="text-xs text-muted-foreground">
                     {file
@@ -188,6 +188,7 @@ export default function ImportRisksDialog({ open, onClose, onImported }: Props) 
                 accept=".csv,text/csv"
                 onChange={handleSelectFile}
                 disabled={isUploading}
+                aria-required="true"
                 className="sr-only"
               />
             </div>

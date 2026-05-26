@@ -36,6 +36,8 @@ export type ResponseStatus = components['schemas']['ResponseStatus']
 
 export type RiskAssessment = components['schemas']['AssessmentResponse']
 export type RiskResponse = components['schemas']['ResponseOut']
+export type ResponseCreate = components['schemas']['ResponseCreate']
+export type ResponseUpdate = components['schemas']['ResponseUpdate']
 export type RiskOwnerSummary = components['schemas']['RiskOwnerSummary']
 export type RiskHistory = components['schemas']['HistoryResponse']
 export type Risk = components['schemas']['RiskResponse']
@@ -99,6 +101,18 @@ export type ApiKeyOwnerSummary = components['schemas']['ApiKeyOwnerSummary']
 export type ApiKeyWithOwner = components['schemas']['ApiKeyWithOwnerResponse']
 
 // -------------------------------------------------------------------------
+// Notifications
+// -------------------------------------------------------------------------
+
+// `Notification` is a global DOM type, so we expose the row schema as
+// `NotificationItem` to avoid shadowing it across the app.
+export type NotificationItem = components['schemas']['NotificationResponse']
+export type NotificationListResponse = components['schemas']['NotificationListResponse']
+export type UnreadCountResponse = components['schemas']['UnreadCountResponse']
+export type MarkAllReadResponse = components['schemas']['MarkAllReadResponse']
+export type NotificationType = components['schemas']['NotificationType']
+
+// -------------------------------------------------------------------------
 // Webhooks
 // -------------------------------------------------------------------------
 
@@ -126,7 +140,9 @@ export type RiskSeverity = components['schemas']['RiskReportRow']['severity']
 
 /** Returns the current risk score from the latest assessment, or null. */
 export function currentScore(risk: Risk): number | null {
-  return risk.assessments[0]?.risk_score ?? null
+  const a = risk.assessments[0]
+  if (!a) return null
+  return a.residual_risk_score ?? a.risk_score
 }
 
 /** Maps a risk score (1-25) to a severity label. */
@@ -141,10 +157,10 @@ export function scoreLabel(score: number): 'Low' | 'Medium' | 'High' | 'Critical
 export function scoreBadgeClass(score: number): string {
   const label = scoreLabel(score)
   const map: Record<string, string> = {
-    Low:      'bg-green-100 text-green-800',
-    Medium:   'bg-yellow-100 text-yellow-800',
-    High:     'bg-orange-100 text-orange-800',
-    Critical: 'bg-red-100 text-red-800',
+    Low:      'bg-green-100  text-green-800  dark:bg-green-900/40  dark:text-green-200',
+    Medium:   'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200',
+    High:     'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200',
+    Critical: 'bg-red-100    text-red-800    dark:bg-red-900/40    dark:text-red-200',
   }
   return map[label]
 }

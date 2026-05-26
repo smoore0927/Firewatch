@@ -264,7 +264,7 @@ export default function SettingsApiKeysPage() {
                             </Button>
                             {showFlash && (
                               <Check
-                                className="h-4 w-4 text-green-600"
+                                className="h-4 w-4 text-green-600 dark:text-green-400"
                                 aria-label="Key updated"
                               />
                             )}
@@ -391,7 +391,7 @@ function CreateApiKeyDialog({ open, onClose, onCreated }: Readonly<CreateApiKeyD
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="create-api-key-name">Name</Label>
+            <Label htmlFor="create-api-key-name">Name <span aria-hidden="true" className="text-destructive">*</span></Label>
             <Input
               id="create-api-key-name"
               type="text"
@@ -521,7 +521,7 @@ function RevealApiKeyDialog({ created, onClose }: Readonly<RevealApiKeyDialogPro
 
         <div className="mt-6 space-y-4">
           <div className="flex items-start gap-3 rounded-md border border-amber-500/50 bg-amber-500/10 p-3">
-            <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" />
+            <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
             <p className="text-sm">
               Copy this key now — it will not be shown again. If you lose it, you'll need to
               create a new key.

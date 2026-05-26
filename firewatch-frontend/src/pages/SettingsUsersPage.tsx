@@ -242,7 +242,7 @@ export default function SettingsUsersPage() {
                           </Button>
                           {showFlash && (
                             <Check
-                              className="h-4 w-4 text-green-600"
+                              className="h-4 w-4 text-green-600 dark:text-green-400"
                               aria-label="User updated"
                             />
                           )}
@@ -354,7 +354,7 @@ function CreateUserDialog({ open, onClose, onCreated }: Readonly<CreateUserDialo
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="create-user-email">Email</Label>
+            <Label htmlFor="create-user-email">Email <span aria-hidden="true" className="text-destructive">*</span></Label>
             <Input
               id="create-user-email"
               type="email"
@@ -379,7 +379,7 @@ function CreateUserDialog({ open, onClose, onCreated }: Readonly<CreateUserDialo
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="create-user-password">Password</Label>
+            <Label htmlFor="create-user-password">Password <span aria-hidden="true" className="text-destructive">*</span></Label>
             <Input
               id="create-user-password"
               type="password"

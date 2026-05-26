@@ -45,8 +45,11 @@ def get_score_history(
     end: Annotated[date, Query()],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
+    tz: Annotated[str | None, Query()] = None,
 ) -> ScoreHistoryResponse:
-    return build_score_history(db, start, end, scope_owner_id=_scope_owner_id(current_user))
+    return build_score_history(
+        db, start, end, scope_owner_id=_scope_owner_id(current_user), tz=tz,
+    )
 
 
 @router.get("/score-totals-by-severity")
@@ -55,9 +58,10 @@ def get_score_totals_by_severity(
     end: Annotated[date, Query()],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
+    tz: Annotated[str | None, Query()] = None,
 ) -> ScoreTotalsBySeverityResponse:
     return build_score_totals_by_severity(
-        db, start, end, scope_owner_id=_scope_owner_id(current_user)
+        db, start, end, scope_owner_id=_scope_owner_id(current_user), tz=tz,
     )
 
 

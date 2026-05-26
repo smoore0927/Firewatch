@@ -44,6 +44,7 @@ from app.api import (
     caep,
     dashboard,
     internal,
+    notifications,
     reports,
     risks,
     scim,
@@ -51,8 +52,9 @@ from app.api import (
     users,
     webhooks,
 )
-# Side-effect import: registers the webhook dispatcher with the event bus.
+# Side-effect imports: register event-bus subscribers at startup.
 from app.services import webhook_service  # noqa: F401
+from app.services import notification_service  # noqa: F401
 from app.services import scheduler
 
 logger = logging.getLogger(__name__)
@@ -147,6 +149,7 @@ app.include_router(audit.router, prefix="/api")
 app.include_router(reports.router, prefix="/api")
 app.include_router(api_keys.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")
+app.include_router(notifications.router, prefix="/api")
 app.include_router(internal.router, prefix="/api")
 
 

@@ -12,7 +12,7 @@
  */
 import { Outlet, NavLink } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { KeyRound, Key, ScrollText, UserCog, Webhook, ChevronLeft, ChevronRight } from 'lucide-react'
+import { KeyRound, Key, Palette, ScrollText, UserCog, Webhook, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useResizableSidebar } from '@/lib/useResizableSidebar'
 import { cn } from '@/lib/utils'
@@ -68,58 +68,83 @@ export default function SettingsLayout() {
           </Button>
         </div>
 
-        <nav className="space-y-1">
-          <NavLink
-            to="/settings/password"
-            title={isNarrow ? 'Change password' : undefined}
-            className={linkClass}
-          >
-            <KeyRound className="h-4 w-4 shrink-0" />
-            {!isNarrow && <span>Change password</span>}
-          </NavLink>
+        <nav className="space-y-4">
+          <div className="space-y-1">
+            {!isNarrow && (
+              <p className="px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                My account
+              </p>
+            )}
+            <NavLink
+              to="/settings/account/password"
+              title={isNarrow ? 'Change password' : undefined}
+              className={linkClass}
+            >
+              <KeyRound className="h-4 w-4 shrink-0" />
+              {!isNarrow && <span>Change password</span>}
+            </NavLink>
+
+            <NavLink
+              to="/settings/account/appearance"
+              title={isNarrow ? 'Appearance' : undefined}
+              className={linkClass}
+            >
+              <Palette className="h-4 w-4 shrink-0" />
+              {!isNarrow && <span>Appearance</span>}
+            </NavLink>
+          </div>
 
           {(user?.role === 'admin' || user?.role === 'security_analyst') && (
-            <NavLink
-              to="/settings/api-keys"
-              title={isNarrow ? 'API keys' : undefined}
-              className={linkClass}
-            >
-              <Key className="h-4 w-4 shrink-0" />
-              {!isNarrow && <span>API keys</span>}
-            </NavLink>
-          )}
+            <div className="space-y-1">
+              {!isNarrow && (
+                <p className="px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Admin
+                </p>
+              )}
+              {(user?.role === 'admin' || user?.role === 'security_analyst') && (
+                <NavLink
+                  to="/settings/api-keys"
+                  title={isNarrow ? 'API keys' : undefined}
+                  className={linkClass}
+                >
+                  <Key className="h-4 w-4 shrink-0" />
+                  {!isNarrow && <span>API keys</span>}
+                </NavLink>
+              )}
 
-          {user?.role === 'admin' && (
-            <NavLink
-              to="/settings/webhooks"
-              title={isNarrow ? 'Webhooks' : undefined}
-              className={linkClass}
-            >
-              <Webhook className="h-4 w-4 shrink-0" />
-              {!isNarrow && <span>Webhooks</span>}
-            </NavLink>
-          )}
+              {user?.role === 'admin' && (
+                <NavLink
+                  to="/settings/webhooks"
+                  title={isNarrow ? 'Webhooks' : undefined}
+                  className={linkClass}
+                >
+                  <Webhook className="h-4 w-4 shrink-0" />
+                  {!isNarrow && <span>Webhooks</span>}
+                </NavLink>
+              )}
 
-          {user?.role === 'admin' && (
-            <NavLink
-              to="/settings/users"
-              title={isNarrow ? 'Users' : undefined}
-              className={linkClass}
-            >
-              <UserCog className="h-4 w-4 shrink-0" />
-              {!isNarrow && <span>Users</span>}
-            </NavLink>
-          )}
+              {user?.role === 'admin' && (
+                <NavLink
+                  to="/settings/users"
+                  title={isNarrow ? 'Users' : undefined}
+                  className={linkClass}
+                >
+                  <UserCog className="h-4 w-4 shrink-0" />
+                  {!isNarrow && <span>Users</span>}
+                </NavLink>
+              )}
 
-          {user?.role === 'admin' && (
-            <NavLink
-              to="/settings/audit-log"
-              title={isNarrow ? 'Audit log' : undefined}
-              className={linkClass}
-            >
-              <ScrollText className="h-4 w-4 shrink-0" />
-              {!isNarrow && <span>Audit log</span>}
-            </NavLink>
+              {user?.role === 'admin' && (
+                <NavLink
+                  to="/settings/audit-log"
+                  title={isNarrow ? 'Audit log' : undefined}
+                  className={linkClass}
+                >
+                  <ScrollText className="h-4 w-4 shrink-0" />
+                  {!isNarrow && <span>Audit log</span>}
+                </NavLink>
+              )}
+            </div>
           )}
         </nav>
 

@@ -5,9 +5,10 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 
 from app.core.roles import UserRole
+from app.schemas._datetime import serialize_utc_datetime
 from app.schemas.dashboard import DashboardSummaryResponse, ScoreHistoryResponse
 
 
@@ -43,3 +44,7 @@ class RiskReportResponse(BaseModel):
     summary: DashboardSummaryResponse
     score_history: ScoreHistoryResponse
     risks: list[RiskReportRow] | None
+
+    @field_serializer("generated_at")
+    def _ser_generated_at(self, dt: datetime) -> str | None:
+        return serialize_utc_datetime(dt)

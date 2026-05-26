@@ -3,7 +3,9 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
+
+from app.schemas._datetime import serialize_utc_datetime
 
 
 SCIM_USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User"
@@ -34,6 +36,10 @@ class SCIMMeta(BaseModel):
     created: datetime
     lastModified: datetime | None = None
     location: str | None = None
+
+    @field_serializer("created", "lastModified")
+    def _ser_datetimes(self, dt: datetime | None) -> str | None:
+        return serialize_utc_datetime(dt)
 
 
 class SCIMUser(BaseModel):

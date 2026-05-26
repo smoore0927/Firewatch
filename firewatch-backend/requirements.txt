@@ -25,6 +25,10 @@ python-multipart>=0.0.9
 # Rate limiting
 slowapi>=0.1.9
 
+# IANA timezone database -- stdlib zoneinfo has no built-in tz data on Windows
+# and may be absent on minimal Linux images. Required for tz-aware day boundaries.
+tzdata>=2024.1
+
 # OIDC / SSO (optional -- enabled via OIDC_ENABLED in .env)
 joserfc>=1.0.0
 httpx>=0.27.0

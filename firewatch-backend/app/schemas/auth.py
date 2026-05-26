@@ -2,9 +2,10 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_serializer, field_validator
 
 from app.core.roles import UserRole
+from app.schemas._datetime import serialize_utc_datetime
 from app.schemas._password_policy import validate_password_complexity
 
 
@@ -26,6 +27,10 @@ class LoginResponse(BaseModel):
     created_at: datetime
     has_password: bool
     must_change_password: bool
+
+    @field_serializer("created_at")
+    def _ser_created_at(self, dt: datetime) -> str | None:
+        return serialize_utc_datetime(dt)
 
 
 class ChangePasswordRequest(BaseModel):

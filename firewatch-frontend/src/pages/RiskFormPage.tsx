@@ -274,7 +274,7 @@ export default function RiskFormPage({ mode }: RiskFormPageProps) {
           </h2>
 
           <div className="space-y-2">
-            <Label htmlFor="title">Title <span className="text-destructive">*</span></Label>
+            <Label htmlFor="title">Title <span aria-hidden="true" className="text-destructive">*</span></Label>
             <Input
               id="title"
               required

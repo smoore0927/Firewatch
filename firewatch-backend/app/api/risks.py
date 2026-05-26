@@ -37,6 +37,7 @@ from app.schemas.risk import (
     ImportResult,
     ImportResultRow,
     ResponseCreate,
+    ResponseUpdate,
     RiskCreate,
     RiskListResponse,
     RiskResponse,
@@ -407,6 +408,55 @@ def add_response(
     )
     db.commit()
     return risk
+
+
+@router.patch("/{risk_id}/responses/{response_id}")
+def update_response(
+    request: Request,
+    risk_id: str,
+    response_id: int,
+    data: ResponseUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> RiskResponse:
+    """Update fields on an existing response/mitigation plan."""
+    risk = RiskService(db).update_response(
+        risk_id=risk_id, response_id=response_id, data=data, updated_by=current_user
+    )
+    record_event(
+        db,
+        action="risk.response.updated",
+        user=current_user,
+        resource_type="risk",
+        resource_id=risk.risk_id,
+        request=request,
+        details={"response_id": response_id, "fields": list(data.model_dump(exclude_unset=True).keys())},
+    )
+    db.commit()
+    return risk
+
+
+@router.delete("/{risk_id}/responses/{response_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_response(
+    request: Request,
+    risk_id: str,
+    response_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> None:
+    RiskService(db).delete_response(
+        risk_id=risk_id, response_id=response_id, deleted_by=current_user
+    )
+    record_event(
+        db,
+        action="risk.response.deleted",
+        user=current_user,
+        resource_type="risk",
+        resource_id=risk_id,
+        request=request,
+        details={"response_id": response_id},
+    )
+    db.commit()
 
 
 @router.delete("/{risk_id}", status_code=status.HTTP_204_NO_CONTENT)

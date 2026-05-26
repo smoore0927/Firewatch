@@ -323,7 +323,7 @@ export default function SettingsWebhooksPage() {
                             </Button>
                             {showFlash && (
                               <Check
-                                className="h-4 w-4 text-green-600 ml-1"
+                                className="h-4 w-4 text-green-600 dark:text-green-400 ml-1"
                                 aria-label="Webhook updated"
                               />
                             )}
@@ -488,7 +488,7 @@ function CreateWebhookDialog({ open, onClose, onCreated }: Readonly<CreateWebhoo
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="create-webhook-name">Name</Label>
+            <Label htmlFor="create-webhook-name">Name <span aria-hidden="true" className="text-destructive">*</span></Label>
             <Input
               id="create-webhook-name"
               type="text"
@@ -506,7 +506,7 @@ function CreateWebhookDialog({ open, onClose, onCreated }: Readonly<CreateWebhoo
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="create-webhook-url">Target URL</Label>
+            <Label htmlFor="create-webhook-url">Target URL <span aria-hidden="true" className="text-destructive">*</span></Label>
             <Input
               id="create-webhook-url"
               type="url"
@@ -524,7 +524,7 @@ function CreateWebhookDialog({ open, onClose, onCreated }: Readonly<CreateWebhoo
           </div>
 
           <fieldset className="space-y-2">
-            <legend className="text-sm font-medium">Event types</legend>
+            <legend className="text-sm font-medium">Event types <span aria-hidden="true" className="text-destructive">*</span></legend>
             <p className="text-xs text-muted-foreground -mt-1">
               Select at least one event type to subscribe to.
             </p>
@@ -687,7 +687,7 @@ function EditWebhookDialog({ sub, onClose, onUpdated }: Readonly<EditWebhookDial
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="edit-webhook-name">Name</Label>
+            <Label htmlFor="edit-webhook-name">Name <span aria-hidden="true" className="text-destructive">*</span></Label>
             <Input
               id="edit-webhook-name"
               type="text"
@@ -701,7 +701,7 @@ function EditWebhookDialog({ sub, onClose, onUpdated }: Readonly<EditWebhookDial
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="edit-webhook-url">Target URL</Label>
+            <Label htmlFor="edit-webhook-url">Target URL <span aria-hidden="true" className="text-destructive">*</span></Label>
             <Input
               id="edit-webhook-url"
               type="url"
@@ -715,7 +715,7 @@ function EditWebhookDialog({ sub, onClose, onUpdated }: Readonly<EditWebhookDial
           </div>
 
           <fieldset className="space-y-2">
-            <legend className="text-sm font-medium">Event types</legend>
+            <legend className="text-sm font-medium">Event types <span aria-hidden="true" className="text-destructive">*</span></legend>
             <div className="space-y-2 pt-1">
               {SUBSCRIBABLE_EVENTS.map((evt) => {
                 const checked = selectedEvents.has(evt.value)
@@ -848,7 +848,7 @@ function RevealSecretDialog({ created, onClose }: Readonly<RevealSecretDialogPro
 
         <div className="mt-6 space-y-4">
           <div className="flex items-start gap-3 rounded-md border border-amber-500/50 bg-amber-500/10 p-3">
-            <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" />
+            <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
             <p className="text-sm">
               Copy this secret now — it will not be shown again. If you lose it, you'll need
               to delete this webhook and create a new one.

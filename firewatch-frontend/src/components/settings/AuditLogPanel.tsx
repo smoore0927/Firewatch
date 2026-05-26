@@ -52,10 +52,10 @@ function lookbackToRange(value: LookbackValue): { start?: string; end?: string }
 function actionBadgeClass(action: string): string {
   const segment = action.split('.')[0]
   switch (segment) {
-    case 'auth': return 'bg-blue-100 text-blue-800'
-    case 'risk': return 'bg-amber-100 text-amber-800'
-    case 'user': return 'bg-purple-100 text-purple-800'
-    default:     return 'bg-gray-100 text-gray-700'
+    case 'auth': return 'bg-blue-100   text-blue-800   dark:bg-blue-900/40   dark:text-blue-200'
+    case 'risk': return 'bg-amber-100  text-amber-800  dark:bg-amber-900/40  dark:text-amber-200'
+    case 'user': return 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200'
+    default:     return 'bg-gray-100   text-gray-700   dark:bg-gray-800      dark:text-gray-300'
   }
 }
 

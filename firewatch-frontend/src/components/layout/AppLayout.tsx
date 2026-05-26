@@ -46,8 +46,8 @@ export default function AppLayout() {
   const isNarrow = width < COLLAPSE_THRESHOLD
 
   const location = useLocation()
-  if (user?.must_change_password && !location.pathname.startsWith('/settings/password')) {
-    return <Navigate to="/settings/password" replace />
+  if (user?.must_change_password && !location.pathname.startsWith('/settings/account/password')) {
+    return <Navigate to="/settings/account/password" replace />
   }
 
   async function handleLogout() {
@@ -197,8 +197,10 @@ export default function AppLayout() {
       </aside>
 
       {/* ---- Page content ---- */}
-      <main className="flex-1 overflow-y-auto p-8">
-        <Outlet />
+      <main className="flex-1 overflow-y-auto">
+        <div className="px-8 py-8">
+          <Outlet />
+        </div>
       </main>
     </div>
   )

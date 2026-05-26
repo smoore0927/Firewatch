@@ -2,7 +2,9 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
+
+from app.schemas._datetime import serialize_utc_datetime
 
 
 class ApiKeyCreate(BaseModel):
@@ -20,6 +22,10 @@ class ApiKeyResponse(BaseModel):
     revoked_at: datetime | None
 
     model_config = {"from_attributes": True}
+
+    @field_serializer("created_at", "last_used_at", "expires_at", "revoked_at")
+    def _ser_datetimes(self, dt: datetime | None) -> str | None:
+        return serialize_utc_datetime(dt)
 
 
 class ApiKeyCreatedResponse(ApiKeyResponse):

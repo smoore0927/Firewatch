@@ -30,7 +30,7 @@ function Calendar({
       className={cn('p-3', className)}
       classNames={{
         root: cn('w-fit', defaultClassNames.root),
-        months: cn('flex flex-col gap-4 sm:flex-row sm:gap-6', defaultClassNames.months),
+        months: cn('relative flex flex-col gap-4 sm:flex-row sm:gap-6', defaultClassNames.months),
         month: cn('flex flex-col gap-3', defaultClassNames.month),
         month_caption: cn(
           'relative flex h-8 items-center justify-center px-8 text-sm font-medium',
@@ -38,7 +38,7 @@ function Calendar({
         ),
         caption_label: cn('text-sm font-medium', defaultClassNames.caption_label),
         nav: cn(
-          'absolute inset-x-0 top-0 flex items-center justify-between px-1',
+          'absolute inset-x-0 top-0 z-20 flex items-center justify-between px-1',
           defaultClassNames.nav,
         ),
         button_previous: cn(

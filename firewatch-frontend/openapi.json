@@ -1008,6 +1008,130 @@
         "title": "LoginResponse",
         "type": "object"
       },
+      "MarkAllReadResponse": {
+        "properties": {
+          "marked": {
+            "title": "Marked",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "marked"
+        ],
+        "title": "MarkAllReadResponse",
+        "type": "object"
+      },
+      "NotificationListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/NotificationResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "unread_total": {
+            "title": "Unread Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "unread_total"
+        ],
+        "title": "NotificationListResponse",
+        "type": "object"
+      },
+      "NotificationResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "link": {
+            "title": "Link",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "read_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read At"
+          },
+          "risk_human_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Human Id"
+          },
+          "risk_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Id"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/NotificationType"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "risk_id",
+          "risk_human_id",
+          "title",
+          "message",
+          "link",
+          "created_at",
+          "read_at"
+        ],
+        "title": "NotificationResponse",
+        "type": "object"
+      },
+      "NotificationType": {
+        "enum": [
+          "risk_assigned",
+          "review_overdue",
+          "response_overdue",
+          "risk_changed"
+        ],
+        "title": "NotificationType",
+        "type": "string"
+      },
       "ReportDateRange": {
         "properties": {
           "end": {
@@ -1366,6 +1490,117 @@
         ],
         "title": "ResponseType",
         "type": "string"
+      },
+      "ResponseUpdate": {
+        "properties": {
+          "completion_date": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Date"
+          },
+          "cost_estimate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Estimate"
+          },
+          "mitigation_strategy": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mitigation Strategy"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "owner_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id"
+          },
+          "response_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResponseType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResponseStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "target_date": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Date"
+          }
+        },
+        "title": "ResponseUpdate",
+        "type": "object"
       },
       "RiskCreate": {
         "properties": {
@@ -2406,6 +2641,19 @@
           "points"
         ],
         "title": "ScoreTotalsBySeverityResponse",
+        "type": "object"
+      },
+      "UnreadCountResponse": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "count"
+        ],
+        "title": "UnreadCountResponse",
         "type": "object"
       },
       "UserCreate": {
@@ -4478,6 +4726,237 @@
         ]
       }
     },
+    "/api/notifications": {
+      "get": {
+        "operationId": "list_notifications_api_notifications_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "unread_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Unread Only",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Notifications",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
+    "/api/notifications/mark-all-read": {
+      "post": {
+        "operationId": "mark_all_read_api_notifications_mark_all_read_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarkAllReadResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Mark All Read",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
+    "/api/notifications/unread-count": {
+      "get": {
+        "operationId": "get_unread_count_api_notifications_unread_count_get",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnreadCountResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Unread Count",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
+    "/api/notifications/{notification_id}/read": {
+      "post": {
+        "operationId": "mark_one_read_api_notifications__notification_id__read_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "notification_id",
+            "required": true,
+            "schema": {
+              "title": "Notification Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Mark One Read",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
     "/api/reports/risk-summary": {
       "get": {
         "operationId": "get_risk_summary_report_api_reports_risk_summary_get",
@@ -5393,6 +5872,142 @@
           }
         },
         "summary": "Add Response",
+        "tags": [
+          "Risks"
+        ]
+      }
+    },
+    "/api/risks/{risk_id}/responses/{response_id}": {
+      "delete": {
+        "operationId": "delete_response_api_risks__risk_id__responses__response_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "risk_id",
+            "required": true,
+            "schema": {
+              "title": "Risk Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "response_id",
+            "required": true,
+            "schema": {
+              "title": "Response Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Response",
+        "tags": [
+          "Risks"
+        ]
+      },
+      "patch": {
+        "description": "Update fields on an existing response/mitigation plan.",
+        "operationId": "update_response_api_risks__risk_id__responses__response_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "risk_id",
+            "required": true,
+            "schema": {
+              "title": "Risk Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "response_id",
+            "required": true,
+            "schema": {
+              "title": "Response Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResponseUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RiskResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Response",
         "tags": [
           "Risks"
         ]

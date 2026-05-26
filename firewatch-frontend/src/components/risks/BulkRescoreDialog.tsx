@@ -100,13 +100,14 @@ export default function BulkRescoreDialog({ open, riskIds, onClose, onDone }: Pr
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label htmlFor="bulk-rescore-likelihood" className="text-sm font-medium">
-                Likelihood
+                Likelihood <span aria-hidden="true" className="text-destructive">*</span>
               </label>
               <select
                 id="bulk-rescore-likelihood"
                 value={likelihood}
                 onChange={(e) => setLikelihood(Number(e.target.value))}
                 disabled={isSubmitting}
+                aria-required="true"
                 className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
               >
                 {SCALE.map((n) => (
@@ -116,13 +117,14 @@ export default function BulkRescoreDialog({ open, riskIds, onClose, onDone }: Pr
             </div>
             <div>
               <label htmlFor="bulk-rescore-impact" className="text-sm font-medium">
-                Impact
+                Impact <span aria-hidden="true" className="text-destructive">*</span>
               </label>
               <select
                 id="bulk-rescore-impact"
                 value={impact}
                 onChange={(e) => setImpact(Number(e.target.value))}
                 disabled={isSubmitting}
+                aria-required="true"
                 className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
               >
                 {SCALE.map((n) => (
