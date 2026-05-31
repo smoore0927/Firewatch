@@ -44,7 +44,7 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
   const [ssoProviderName, setSsoProviderName] = useState<string | null>(null)
 
   useEffect(() => {
-    Promise.all([
+    void Promise.all([
       authApi.me().then((data) => setUser(data as User)).catch((err) => {
         if (!(err instanceof ApiError && err.status === 401)) {
           console.error('Auth check failed:', err)

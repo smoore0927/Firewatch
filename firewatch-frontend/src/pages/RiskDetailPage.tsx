@@ -12,9 +12,9 @@
 import { useEffect, useState, useMemo, useRef, SyntheticEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { risksApi, usersApi, ApiError } from '@/services/api'
-import { currentScore, scoreLabel } from '@/types'
-import type { Risk, RiskAssessment, RiskHistory, RiskResponse, RiskStatus, ResponseCreate, ResponseStatus, ResponseType, ResponseUpdate, User } from '@/types'
+import { risksApi, usersApi, frameworksApi, ApiError } from '@/services/api'
+import { currentScore, scoreLabel, formatLikelihoodImpact } from '@/types'
+import type { Risk, RiskAssessment, RiskHistory, RiskResponse, RiskStatus, ResponseCreate, ResponseStatus, ResponseType, ResponseUpdate, User, Control, ControlFramework, RiskControlMapping, RiskControlCreate } from '@/types'
 import { Badge, scoreToBadgeVariant } from '@/components/ui/badge'
 import type { BadgeVariant } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -298,8 +298,14 @@ function BatchEntry({ entry, expandedCommits, editHistory, toggleCommit, onViewF
               {entry.batch.assessment.risk_score} — {scoreLabel(entry.batch.assessment.risk_score)}
             </Badge>
             <span className="text-muted-foreground text-xs">
-              {entry.batch.assessment.likelihood} (likelihood) × {entry.batch.assessment.impact} (impact)
+              {formatLikelihoodImpact(entry.batch.assessment.likelihood, entry.batch.assessment.impact)} (likelihood × impact)
             </span>
+            {entry.batch.assessment.residual_risk_score != null && (
+              <span className="text-muted-foreground text-xs">
+                Residual: <span className="font-medium text-foreground">{entry.batch.assessment.residual_risk_score}</span>
+                {' '}({formatLikelihoodImpact(entry.batch.assessment.residual_likelihood!, entry.batch.assessment.residual_impact!)})
+              </span>
+            )}
             {!entry.batch.statusChange && (
               <Badge variant={entry.batch.statusAtTime}>
                 {STATUS_LABELS[entry.batch.statusAtTime]}
@@ -981,6 +987,613 @@ function ResponsePlans({
   )
 }
 
+// ---- Mapped Controls --------------------------------------------------------
+
+const MAPPING_TYPE_LABELS: Record<string, string> = {
+  mitigates: 'Mitigates',
+  monitors:  'Monitors',
+  detects:   'Detects',
+}
+
+const MAPPING_TYPES = ['mitigates', 'monitors', 'detects'] as const
+
+function AddControlForm({
+  riskId,
+  onCancel,
+  onAdded,
+}: Readonly<{
+  riskId: string
+  onCancel: () => void
+  onAdded: () => void
+}>) {
+  const [frameworks, setFrameworks] = useState<ControlFramework[]>([])
+  const [frameworkId, setFrameworkId] = useState<number | ''>('')
+  const [search, setSearch] = useState('')
+  const [controls, setControls] = useState<Control[]>([])
+  const [controlId, setControlId] = useState<number | ''>('')
+  const [mappingType, setMappingType] = useState<string>('mitigates')
+  const [notes, setNotes] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    frameworksApi.getFrameworks().then(setFrameworks).catch(() => { /* read-only fallback */ })
+  }, [])
+
+  // Debounced control search whenever the framework or query changes.
+  useEffect(() => {
+    if (frameworkId === '') {
+      setControls([])
+      return
+    }
+    const handle = setTimeout(() => {
+      frameworksApi.getFrameworkControls(frameworkId, search.trim() || undefined)
+        .then(setControls)
+        .catch(() => setControls([]))
+    }, 250)
+    return () => clearTimeout(handle)
+  }, [frameworkId, search])
+
+  async function handleSubmit(e: SyntheticEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (controlId === '') return
+    setErrorMessage(null)
+    setIsSubmitting(true)
+    try {
+      const payload: RiskControlCreate = {
+        control_id:   controlId,
+        mapping_type: mappingType,
+        ...(notes.trim() && { notes: notes.trim() }),
+      }
+      await frameworksApi.addRiskControl(riskId, payload)
+      onAdded()
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        setErrorMessage('This control is already mapped to this risk.')
+      } else {
+        setErrorMessage(err instanceof ApiError ? err.message : 'Could not add this control.')
+      }
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const selectClass = 'w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50'
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-3 rounded-md border bg-muted/20 p-4" noValidate>
+      <div className="space-y-1">
+        <Label htmlFor="control-framework">Framework <span aria-hidden="true" className="text-destructive">*</span></Label>
+        <select
+          id="control-framework"
+          value={frameworkId}
+          onChange={(e) => {
+            setFrameworkId(e.target.value ? Number(e.target.value) : '')
+            setControlId('')
+          }}
+          disabled={isSubmitting}
+          required
+          className={selectClass}
+        >
+          <option value="">Select a framework…</option>
+          {frameworks.map((f) => (
+            <option key={f.id} value={f.id}>
+              {f.name}{f.version ? ` (${f.version})` : ''}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {frameworkId !== '' && (
+        <>
+          <div className="space-y-1">
+            <Label htmlFor="control-search">Search controls</Label>
+            <Input
+              id="control-search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Filter by control ID or title…"
+              disabled={isSubmitting}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="control-picker">Control <span aria-hidden="true" className="text-destructive">*</span></Label>
+            <select
+              id="control-picker"
+              value={controlId}
+              onChange={(e) => setControlId(e.target.value ? Number(e.target.value) : '')}
+              disabled={isSubmitting}
+              required
+              size={6}
+              className={selectClass}
+            >
+              {controls.length === 0 ? (
+                <option value="" disabled>No controls found</option>
+              ) : (
+                controls.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.control_id} — {c.title}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+        </>
+      )}
+
+      <div className="space-y-1">
+        <Label htmlFor="control-mapping-type">Mapping type <span aria-hidden="true" className="text-destructive">*</span></Label>
+        <select
+          id="control-mapping-type"
+          value={mappingType}
+          onChange={(e) => setMappingType(e.target.value)}
+          disabled={isSubmitting}
+          required
+          className={selectClass}
+        >
+          {MAPPING_TYPES.map((t) => (
+            <option key={t} value={t}>{MAPPING_TYPE_LABELS[t]}</option>
+          ))}
+        </select>
+      </div>
+
+      <div className="space-y-1">
+        <Label htmlFor="control-notes">Notes</Label>
+        <Textarea
+          id="control-notes"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          disabled={isSubmitting}
+          rows={2}
+        />
+      </div>
+
+      {errorMessage && (
+        <p className="text-sm text-destructive">{errorMessage}</p>
+      )}
+
+      <div className="flex items-center gap-2">
+        <Button type="submit" size="sm" disabled={isSubmitting || controlId === ''}>
+          {isSubmitting ? 'Saving…' : 'Add control'}
+        </Button>
+        <Button type="button" size="sm" variant="ghost" disabled={isSubmitting} onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  )
+}
+
+function MappedControlRow({
+  mapping,
+  canEdit,
+  onRemove,
+}: Readonly<{
+  mapping: RiskControlMapping
+  canEdit: boolean
+  onRemove: () => Promise<void>
+}>) {
+  const [isRemoving, setIsRemoving] = useState(false)
+
+  async function handleRemove() {
+    setIsRemoving(true)
+    try {
+      await onRemove()
+    } finally {
+      setIsRemoving(false)
+    }
+  }
+
+  return (
+    <li className="px-5 py-4 text-sm space-y-2">
+      <div className="flex items-start justify-between gap-2">
+        <div className="space-y-1 min-w-0">
+          <p className="font-medium">
+            <span className="font-mono">{mapping.control.control_id}</span> — {mapping.control.title}
+          </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Badge variant="outline">{mapping.control.framework_name}</Badge>
+            <Badge variant="outline" className="capitalize">
+              {MAPPING_TYPE_LABELS[mapping.mapping_type] ?? mapping.mapping_type}
+            </Badge>
+          </div>
+          {mapping.notes && (
+            <p className="text-xs text-muted-foreground italic">"{mapping.notes}"</p>
+          )}
+        </div>
+        {canEdit && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0 text-destructive hover:text-destructive shrink-0"
+            disabled={isRemoving}
+            aria-label={`Remove control ${mapping.control.control_id}`}
+            onClick={handleRemove}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        )}
+      </div>
+    </li>
+  )
+}
+
+function MappedControls({
+  riskId,
+  canEdit,
+}: Readonly<{
+  riskId: string
+  canEdit: boolean
+}>) {
+  const [mappings, setMappings] = useState<RiskControlMapping[]>([])
+  const [isCreating, setIsCreating] = useState(false)
+
+  function load() {
+    frameworksApi.getRiskControls(riskId).then(setMappings).catch(() => { /* read-only fallback */ })
+  }
+
+  useEffect(() => {
+    frameworksApi.getRiskControls(riskId).then(setMappings).catch(() => { /* read-only fallback */ })
+  }, [riskId])
+
+  async function handleRemove(mappingId: number) {
+    await frameworksApi.deleteRiskControl(riskId, mappingId)
+    load()
+  }
+
+  return (
+    <div className="rounded-lg border overflow-hidden">
+      <div className="px-5 py-4 border-b flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Mapped Controls
+        </h2>
+        {canEdit && !isCreating && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="gap-1"
+            onClick={() => setIsCreating(true)}
+          >
+            <Plus className="h-3 w-3" /> Add control
+          </Button>
+        )}
+      </div>
+
+      {isCreating && (
+        <div className="px-5 py-4 border-b">
+          <AddControlForm
+            riskId={riskId}
+            onCancel={() => setIsCreating(false)}
+            onAdded={() => { setIsCreating(false); load() }}
+          />
+        </div>
+      )}
+
+      {mappings.length === 0 ? (
+        <p className="px-5 py-4 text-sm text-muted-foreground">No controls mapped yet.</p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {mappings.map((m) => (
+            <MappedControlRow
+              key={m.id}
+              mapping={m}
+              canEdit={canEdit}
+              onRemove={() => handleRemove(m.id)}
+            />
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+// ---- Header -----------------------------------------------------------------
+
+function RiskHeader({
+  risk,
+  canEdit,
+  userRole,
+  isSavingStatus,
+  onStatusChange,
+  onEdit,
+  onBack,
+  onRequestDelete,
+}: Readonly<{
+  risk: Risk
+  canEdit: boolean
+  userRole: string | undefined
+  isSavingStatus: boolean
+  onStatusChange: (e: React.ChangeEvent<HTMLSelectElement>) => void
+  onEdit: () => void
+  onBack: () => void
+  onRequestDelete: () => void
+}>) {
+  return (
+    <div>
+      <button
+        onClick={onBack}
+        className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4"
+      >
+        <ArrowLeft className="h-4 w-4" /> Risk Register
+      </button>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-mono text-muted-foreground mb-1">{risk.risk_id}</p>
+          <h1 className="text-2xl font-bold tracking-tight">{risk.title}</h1>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {canEdit ? (
+            // Two-layer approach:
+            //   1. Visual layer  — the label + chevron, sized by the text so the
+            //      badge width always matches the selected status length.
+            //   2. Interaction layer — an invisible <select> with absolute inset-0
+            //      so clicking anywhere on the badge opens the dropdown, not just
+            //      the text portion.
+            <div className={`relative inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium gap-1 ${STATUS_COLORS[risk.status]} ${isSavingStatus ? 'opacity-50' : ''}`}>
+              <span>{STATUS_LABELS[risk.status]}</span>
+              <ChevronDown className="h-3 w-3 shrink-0 opacity-60" />
+              <select
+                value={risk.status}
+                onChange={onStatusChange}
+                disabled={isSavingStatus}
+                aria-label="Change status"
+                className="absolute inset-0 w-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
+              >
+                {(Object.keys(STATUS_LABELS) as RiskStatus[]).map((s) => (
+                  <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <Badge variant={risk.status}>{STATUS_LABELS[risk.status]}</Badge>
+          )}
+          {canEdit && (
+            <Button size="sm" variant="outline" className="gap-2"
+              onClick={onEdit}>
+              <Pencil className="h-3 w-3" /> Edit
+            </Button>
+          )}
+          {userRole === 'admin' && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline" aria-label="More actions">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onSelect={onRequestDelete}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete this risk
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---- Score card -------------------------------------------------------------
+
+function ScoreCard({
+  score,
+  latestAssessment,
+  canEdit,
+  isAssessing,
+  isSavingAssessment,
+  assessForm,
+  setAssessForm,
+  onStartAssessing,
+  onCancelAssessing,
+  onSubmit,
+}: Readonly<{
+  score: number | null
+  latestAssessment: RiskAssessment | null
+  canEdit: boolean
+  isAssessing: boolean
+  isSavingAssessment: boolean
+  assessForm: { residual_likelihood: string; residual_impact: string; notes: string }
+  setAssessForm: React.Dispatch<React.SetStateAction<{ residual_likelihood: string; residual_impact: string; notes: string }>>
+  onStartAssessing: () => void
+  onCancelAssessing: () => void
+  onSubmit: (e: SyntheticEvent<HTMLFormElement>) => void
+}>) {
+  return (
+    <div className="rounded-lg border p-5">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-4">
+        Current Score
+      </h2>
+      {score === null ? (
+        <p className="text-sm text-muted-foreground italic">
+          No score yet — set an initial score on the edit page.
+        </p>
+      ) : (
+        <div className="flex items-center gap-6">
+          <div className="text-center">
+            <p className="text-4xl font-bold">{score}</p>
+            <p className="text-xs text-muted-foreground mt-1">out of 25</p>
+          </div>
+          <div className="space-y-1">
+            <Badge variant={scoreToBadgeVariant(score)} className="text-sm px-3 py-1">
+              {scoreLabel(score)}
+            </Badge>
+            {latestAssessment && (
+              <p className="text-xs text-muted-foreground">
+                Inherent (likelihood × impact): <span className="font-medium">{formatLikelihoodImpact(latestAssessment.likelihood, latestAssessment.impact)} = {latestAssessment.risk_score}</span>
+              </p>
+            )}
+            {latestAssessment?.residual_risk_score != null && (
+              <p className="text-xs text-muted-foreground">
+                Residual: <strong className="font-medium text-foreground">{latestAssessment.residual_risk_score}</strong>
+                {' '}({formatLikelihoodImpact(latestAssessment.residual_likelihood!, latestAssessment.residual_impact!)})
+              </p>
+            )}
+            {latestAssessment?.assessed_at && (
+              <p className="text-xs text-muted-foreground">
+                Last reviewed: {new Date(latestAssessment.assessed_at).toLocaleDateString()}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Re-assess inline form — editors only */}
+      {canEdit && (
+        <div className="mt-4 pt-4 border-t">
+          {isAssessing ? (
+            <form onSubmit={onSubmit} className="space-y-3" noValidate>
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label htmlFor="assess-residual-likelihood" className="text-xs font-medium">Residual Likelihood</label>
+                    <select
+                      id="assess-residual-likelihood"
+                      value={assessForm.residual_likelihood}
+                      onChange={(e) => setAssessForm((p) => ({ ...p, residual_likelihood: e.target.value }))}
+                      disabled={isSavingAssessment}
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                    >
+                      <option value="">Not set</option>
+                      {[1,2,3,4,5].map((n) => (
+                        <option key={n} value={n}>{n} — {LIKELIHOOD_LABELS[n]}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="assess-residual-impact" className="text-xs font-medium">Residual Impact</label>
+                    <select
+                      id="assess-residual-impact"
+                      value={assessForm.residual_impact}
+                      onChange={(e) => setAssessForm((p) => ({ ...p, residual_impact: e.target.value }))}
+                      disabled={isSavingAssessment}
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                    >
+                      <option value="">Not set</option>
+                      {[1,2,3,4,5].map((n) => (
+                        <option key={n} value={n}>{n} — {LIKELIHOOD_LABELS[n]}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                {assessForm.residual_likelihood && assessForm.residual_impact && (
+                  <p className="text-xs text-muted-foreground">
+                    Residual score preview:{' '}
+                    <span className="font-semibold text-foreground">
+                      {Number(assessForm.residual_likelihood) * Number(assessForm.residual_impact)}
+                    </span>
+                    {' '}({formatLikelihoodImpact(Number(assessForm.residual_likelihood), Number(assessForm.residual_impact))})
+                  </p>
+                )}
+              </div>
+
+              <textarea
+                value={assessForm.notes}
+                onChange={(e) => setAssessForm((p) => ({ ...p, notes: e.target.value }))}
+                placeholder="Notes (optional)"
+                rows={2}
+                disabled={isSavingAssessment}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 resize-none"
+              />
+
+              <div className="flex items-center gap-2">
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={isSavingAssessment}
+                >
+                  {isSavingAssessment ? 'Saving…' : 'Save review'}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={isSavingAssessment}
+                  onClick={onCancelAssessing}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          ) : (
+            latestAssessment !== null && (
+              <button
+                onClick={onStartAssessing}
+                className="text-xs text-primary hover:underline"
+              >
+                + Log review
+              </button>
+            )
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---- Activity timeline ------------------------------------------------------
+
+function ActivityTimeline({
+  timeline,
+  editHistory,
+  previewCount,
+  expanded,
+  onToggleExpanded,
+  expandedCommits,
+  toggleCommit,
+  onViewFull,
+}: Readonly<{
+  timeline: ReturnType<typeof buildTimeline>
+  editHistory: ReturnType<typeof buildEditHistory>
+  previewCount: number
+  expanded: boolean
+  onToggleExpanded: () => void
+  expandedCommits: Set<string>
+  toggleCommit: (date: string) => void
+  onViewFull: (change: RiskHistory) => void
+}>) {
+  if (timeline.length === 0) return null
+  return (
+    <div className="rounded-lg border overflow-hidden">
+      <div className="px-5 py-4 border-b">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Activity
+        </h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Score changes and status updates, newest first.
+        </p>
+      </div>
+      <ul className="divide-y divide-border">
+        {(expanded ? timeline : timeline.slice(0, previewCount)).map((entry) => (
+          <li key={entry.date}>
+            <BatchEntry
+              entry={entry}
+              expandedCommits={expandedCommits}
+              editHistory={editHistory}
+              toggleCommit={toggleCommit}
+              onViewFull={onViewFull}
+            />
+          </li>
+        ))}
+      </ul>
+      {timeline.length > previewCount && (
+        <button
+          onClick={onToggleExpanded}
+          className="w-full px-5 py-3 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors border-t text-left"
+        >
+          {expanded ? 'Show less' : `Show ${timeline.length - previewCount} more`}
+        </button>
+      )}
+    </div>
+  )
+}
+
 // ---- Component --------------------------------------------------------------
 
 export default function RiskDetailPage() {
@@ -1070,13 +1683,13 @@ export default function RiskDetailPage() {
 
   async function handleAddAssessment(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault()
-    if (!riskId) return
+    if (!riskId || !latestAssessment) return
     setIsSavingAssessment(true)
     try {
       const hasResidual = !!assessForm.residual_likelihood && !!assessForm.residual_impact
       await risksApi.addAssessment(riskId, {
-        likelihood: latestAssessment!.likelihood,
-        impact:     latestAssessment!.impact,
+        likelihood: latestAssessment.likelihood,
+        impact:     latestAssessment.impact,
         ...(assessForm.notes.trim() && { notes: assessForm.notes.trim() }),
         ...(hasResidual && {
           residual_likelihood: Number(assessForm.residual_likelihood),
@@ -1157,208 +1770,37 @@ export default function RiskDetailPage() {
     <div className="max-w-3xl space-y-8">
 
       {/* ---- Header ---- */}
-      <div>
-        <button
-          onClick={() => navigate('/risks')}
-          className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4"
-        >
-          <ArrowLeft className="h-4 w-4" /> Risk Register
-        </button>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-mono text-muted-foreground mb-1">{risk.risk_id}</p>
-            <h1 className="text-2xl font-bold tracking-tight">{risk.title}</h1>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {canEdit ? (
-              // Two-layer approach:
-              //   1. Visual layer  — the label + chevron, sized by the text so the
-              //      badge width always matches the selected status length.
-              //   2. Interaction layer — an invisible <select> with absolute inset-0
-              //      so clicking anywhere on the badge opens the dropdown, not just
-              //      the text portion.
-              <div className={`relative inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium gap-1 ${STATUS_COLORS[risk.status]} ${isSavingStatus ? 'opacity-50' : ''}`}>
-                <span>{STATUS_LABELS[risk.status]}</span>
-                <ChevronDown className="h-3 w-3 shrink-0 opacity-60" />
-                <select
-                  value={risk.status}
-                  onChange={handleStatusChange}
-                  disabled={isSavingStatus}
-                  aria-label="Change status"
-                  className="absolute inset-0 w-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
-                >
-                  {(Object.keys(STATUS_LABELS) as RiskStatus[]).map((s) => (
-                    <option key={s} value={s}>{STATUS_LABELS[s]}</option>
-                  ))}
-                </select>
-              </div>
-            ) : (
-              <Badge variant={risk.status}>{STATUS_LABELS[risk.status]}</Badge>
-            )}
-            {canEdit && (
-              <Button size="sm" variant="outline" className="gap-2"
-                onClick={() => navigate(`/risks/${risk.risk_id}/edit`)}>
-                <Pencil className="h-3 w-3" /> Edit
-              </Button>
-            )}
-            {user?.role === 'admin' && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="outline" aria-label="More actions">
-                    <MoreHorizontal className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem
-                    onSelect={() => { setDeleteError(null); setIsDeleteOpen(true) }}
-                    className="text-destructive focus:text-destructive"
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Delete this risk
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-          </div>
-        </div>
-      </div>
+      <RiskHeader
+        risk={risk}
+        canEdit={canEdit}
+        userRole={user?.role}
+        isSavingStatus={isSavingStatus}
+        onStatusChange={handleStatusChange}
+        onEdit={() => navigate(`/risks/${risk.risk_id}/edit`)}
+        onBack={() => navigate('/risks')}
+        onRequestDelete={() => { setDeleteError(null); setIsDeleteOpen(true) }}
+      />
 
       {/* ---- Score card ---- */}
-      <div className="rounded-lg border p-5">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-4">
-          Current Score
-        </h2>
-        {score === null ? (
-          <p className="text-sm text-muted-foreground italic">
-            No score yet — set an initial score on the edit page.
-          </p>
-        ) : (
-          <div className="flex items-center gap-6">
-            <div className="text-center">
-              <p className="text-4xl font-bold">{score}</p>
-              <p className="text-xs text-muted-foreground mt-1">out of 25</p>
-            </div>
-            <div className="space-y-1">
-              <Badge variant={scoreToBadgeVariant(score)} className="text-sm px-3 py-1">
-                {scoreLabel(score)}
-              </Badge>
-              {latestAssessment && (
-                <p className="text-xs text-muted-foreground">
-                  Inherent: <span className="font-medium">{latestAssessment.likelihood} × {latestAssessment.impact} = {latestAssessment.risk_score}</span>
-                </p>
-              )}
-              {latestAssessment?.residual_risk_score != null && (
-                <p className="text-xs text-muted-foreground">
-                  Residual: <strong className="font-medium text-foreground">{latestAssessment.residual_risk_score}</strong>
-                  {' '}({latestAssessment.residual_likelihood} × {latestAssessment.residual_impact})
-                </p>
-              )}
-              {latestAssessment?.assessed_at && (
-                <p className="text-xs text-muted-foreground">
-                  Last reviewed: {new Date(latestAssessment.assessed_at).toLocaleDateString()}
-                </p>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Re-assess inline form — editors only */}
-        {canEdit && (
-          <div className="mt-4 pt-4 border-t">
-            {isAssessing ? (
-              <form onSubmit={handleAddAssessment} className="space-y-3" noValidate>
-                <div className="space-y-2">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label htmlFor="assess-residual-likelihood" className="text-xs font-medium">Residual Likelihood</label>
-                      <select
-                        id="assess-residual-likelihood"
-                        value={assessForm.residual_likelihood}
-                        onChange={(e) => setAssessForm((p) => ({ ...p, residual_likelihood: e.target.value }))}
-                        disabled={isSavingAssessment}
-                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-                      >
-                        <option value="">Not set</option>
-                        {[1,2,3,4,5].map((n) => (
-                          <option key={n} value={n}>{n} — {LIKELIHOOD_LABELS[n]}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <label htmlFor="assess-residual-impact" className="text-xs font-medium">Residual Impact</label>
-                      <select
-                        id="assess-residual-impact"
-                        value={assessForm.residual_impact}
-                        onChange={(e) => setAssessForm((p) => ({ ...p, residual_impact: e.target.value }))}
-                        disabled={isSavingAssessment}
-                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-                      >
-                        <option value="">Not set</option>
-                        {[1,2,3,4,5].map((n) => (
-                          <option key={n} value={n}>{n} — {LIKELIHOOD_LABELS[n]}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                  {assessForm.residual_likelihood && assessForm.residual_impact && (
-                    <p className="text-xs text-muted-foreground">
-                      Residual score preview:{' '}
-                      <span className="font-semibold text-foreground">
-                        {Number(assessForm.residual_likelihood) * Number(assessForm.residual_impact)}
-                      </span>
-                      {' '}({assessForm.residual_likelihood} × {assessForm.residual_impact})
-                    </p>
-                  )}
-                </div>
-
-                <textarea
-                  value={assessForm.notes}
-                  onChange={(e) => setAssessForm((p) => ({ ...p, notes: e.target.value }))}
-                  placeholder="Notes (optional)"
-                  rows={2}
-                  disabled={isSavingAssessment}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 resize-none"
-                />
-
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="submit"
-                    size="sm"
-                    disabled={isSavingAssessment}
-                  >
-                    {isSavingAssessment ? 'Saving…' : 'Save review'}
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    disabled={isSavingAssessment}
-                    onClick={() => {
-                      setIsAssessing(false)
-                      setAssessForm({
-                        residual_likelihood: '',
-                        residual_impact: '',
-                        notes: '',
-                      })
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </form>
-            ) : (
-              latestAssessment !== null && (
-                <button
-                  onClick={() => setIsAssessing(true)}
-                  className="text-xs text-primary hover:underline"
-                >
-                  + Log review
-                </button>
-              )
-            )}
-          </div>
-        )}
-      </div>
+      <ScoreCard
+        score={score}
+        latestAssessment={latestAssessment}
+        canEdit={canEdit}
+        isAssessing={isAssessing}
+        isSavingAssessment={isSavingAssessment}
+        assessForm={assessForm}
+        setAssessForm={setAssessForm}
+        onStartAssessing={() => setIsAssessing(true)}
+        onCancelAssessing={() => {
+          setIsAssessing(false)
+          setAssessForm({
+            residual_likelihood: '',
+            residual_impact: '',
+            notes: '',
+          })
+        }}
+        onSubmit={handleAddAssessment}
+      />
 
       {/* ---- Details ---- */}
       <div className="rounded-lg border p-5 space-y-4">
@@ -1409,40 +1851,20 @@ export default function RiskDetailPage() {
       {/* ---- Responses ---- */}
       <ResponsePlans risk={risk} canEdit={canEdit} onChanged={loadRisk} />
 
+      {/* ---- Mapped controls ---- */}
+      <MappedControls riskId={risk.risk_id} canEdit={canEdit} />
+
       {/* ---- Activity timeline ---- */}
-      {timeline.length > 0 && (
-        <div className="rounded-lg border overflow-hidden">
-          <div className="px-5 py-4 border-b">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Activity
-            </h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Score changes and status updates, newest first.
-            </p>
-          </div>
-          <ul className="divide-y divide-border">
-            {(timelineExpanded ? timeline : timeline.slice(0, TIMELINE_PREVIEW)).map((entry) => (
-              <li key={entry.date}>
-                <BatchEntry
-                  entry={entry}
-                  expandedCommits={expandedCommits}
-                  editHistory={editHistory}
-                  toggleCommit={toggleCommit}
-                  onViewFull={setSelectedChange}
-                />
-              </li>
-            ))}
-          </ul>
-          {timeline.length > TIMELINE_PREVIEW && (
-            <button
-              onClick={() => setTimelineExpanded((e) => !e)}
-              className="w-full px-5 py-3 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors border-t text-left"
-            >
-              {timelineExpanded ? 'Show less' : `Show ${timeline.length - TIMELINE_PREVIEW} more`}
-            </button>
-          )}
-        </div>
-      )}
+      <ActivityTimeline
+        timeline={timeline}
+        editHistory={editHistory}
+        previewCount={TIMELINE_PREVIEW}
+        expanded={timelineExpanded}
+        onToggleExpanded={() => setTimelineExpanded((e) => !e)}
+        expandedCommits={expandedCommits}
+        toggleCommit={toggleCommit}
+        onViewFull={setSelectedChange}
+      />
 
     </div>
 

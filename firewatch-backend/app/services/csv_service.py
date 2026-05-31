@@ -47,6 +47,7 @@ IMPORT_COLUMNS = [
     "impact",
     "review_frequency_days",
     "next_review_date",
+    "created_at",
 ]
 
 IMPORT_TEMPLATE_EXAMPLE = [
@@ -62,6 +63,7 @@ IMPORT_TEMPLATE_EXAMPLE = [
     "3",
     "90",
     "2026-08-01",
+    "2024-01-15T00:00:00",
 ]
 
 
@@ -204,6 +206,18 @@ def parse_risks_csv(content: str) -> list[ParsedRow]:
                 except ValueError:
                     raise ValueError("next_review_date must be ISO date YYYY-MM-DD")
 
+            created_at: datetime | None = None
+            ca_raw = row.get("created_at")
+            if ca_raw is not None:
+                try:
+                    created_at = datetime.fromisoformat(ca_raw)
+                except ValueError:
+                    raise ValueError("created_at must be an ISO datetime, e.g. 2024-01-15 or 2024-01-15T00:00:00")
+                # Reject future timestamps
+                now = datetime.now(created_at.tzinfo) if created_at.tzinfo else datetime.now()
+                if created_at > now:
+                    raise ValueError("created_at cannot be in the future")
+
             risk_create = RiskCreate(
                 title=title,
                 description=row.get("description"),
@@ -214,6 +228,7 @@ def parse_risks_csv(content: str) -> list[ParsedRow]:
                 category=row.get("category"),
                 review_frequency_days=review_frequency_days,
                 next_review_date=next_review_date,
+                created_at=created_at,
                 likelihood=likelihood,
                 impact=impact,
             )

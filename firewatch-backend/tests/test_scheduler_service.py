@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 
 import pytest
 
@@ -114,7 +114,7 @@ def test_update_guard_marks_state_advanced(db, owner):
 
     state = db.query(SchedulerState).filter(SchedulerState.id == 1).first()
     assert state is not None
-    today = datetime.now(timezone.utc).date()
+    today = date.today()
     assert state.last_review_digest_date == today
     assert state.last_response_overdue_date == today
 
@@ -212,3 +212,11 @@ def test_no_overdue_means_no_events(db, owner):
     events.subscribe(handler)
     scheduler.run_daily_tick(db)
     assert captured == []
+
+
+def test_daily_tick_today_is_local_date(db, monkeypatch):
+    """Business 'today' must be local date.today(), not the UTC date."""
+    seen: list[date] = []
+    monkeypatch.setattr(scheduler, "_run_response_overdue", lambda _db, today: seen.append(today))
+    scheduler.run_daily_tick(db)
+    assert seen == [date.today()]

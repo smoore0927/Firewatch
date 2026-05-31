@@ -52,8 +52,8 @@ export default function NotificationBell() {
       }
     }
 
-    tick()
-    const id = setInterval(tick, UNREAD_POLL_MS)
+    void tick()
+    const id = setInterval(() => void tick(), UNREAD_POLL_MS)
     return () => {
       cancelled = true
       clearInterval(id)
@@ -218,7 +218,7 @@ export default function NotificationBell() {
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' || e.key === ' ') {
                               e.preventDefault()
-                              handleMarkRowRead(e as unknown as React.MouseEvent, n)
+                              void handleMarkRowRead(e as unknown as React.MouseEvent, n)
                             }
                           }}
                           className="absolute right-2 top-2 hidden group-hover:inline-flex items-center justify-center h-5 w-5 rounded text-muted-foreground hover:bg-background hover:text-foreground"

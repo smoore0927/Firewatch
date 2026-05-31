@@ -25,6 +25,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Res
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user, get_db, require_role
+from app.core.uploads import read_upload_capped
 from app.models.risk import RiskStatus
 from app.models.user import User, UserRole
 from app.schemas.risk import (
@@ -160,12 +161,7 @@ def import_risks(
     current_user: Annotated[User, Depends(require_role(UserRole.admin, UserRole.security_analyst))],
 ) -> ImportResult:
     """Bulk-create risks from an uploaded CSV. Errors are reported per row."""
-    raw = file.file.read()
-    if len(raw) > MAX_IMPORT_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="CSV upload exceeds 5 MB limit",
-        )
+    raw = read_upload_capped(file, MAX_IMPORT_BYTES, detail="CSV upload exceeds 5 MB limit")
 
     content = raw.decode("utf-8-sig", errors="replace")
     try:

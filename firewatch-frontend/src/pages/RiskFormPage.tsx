@@ -19,6 +19,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { risksApi, usersApi } from '@/services/api'
 import type { Risk, RiskStatus, User } from '@/types'
+import { formatLikelihoodImpact } from '@/types'
 import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -217,7 +218,7 @@ export default function RiskFormPage({ mode }: RiskFormPageProps) {
             Initial score
           </h2>
           <p className="text-xs text-muted-foreground">
-            Both fields must be set together. Score = likelihood x impact (1-25).
+            Both fields must be set together. Score = likelihood × impact (1-25).
             You can add more assessments later from the risk detail page.
           </p>
 
@@ -262,7 +263,7 @@ export default function RiskFormPage({ mode }: RiskFormPageProps) {
               <span className="font-semibold text-foreground">
                 {Number(form.likelihood) * Number(form.impact)}
               </span>
-              {' '}({Number(form.likelihood)} x {Number(form.impact)})
+              {' '}({formatLikelihoodImpact(Number(form.likelihood), Number(form.impact))})
             </p>
           )}
         </section>

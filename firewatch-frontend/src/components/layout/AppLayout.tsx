@@ -29,6 +29,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { useResizableSidebar } from '@/lib/useResizableSidebar'
 import { cn } from '@/lib/utils'
+import NotificationBell from '@/components/layout/NotificationBell'
 
 const COLLAPSE_THRESHOLD = 140
 
@@ -197,8 +198,11 @@ export default function AppLayout() {
       </aside>
 
       {/* ---- Page content ---- */}
-      <main className="flex-1 overflow-y-auto">
-        <div className="px-8 py-8">
+      <main className="flex-1 overflow-y-auto flex flex-col">
+        <div className="flex justify-end items-center px-6 py-2 border-b bg-card shrink-0">
+          <NotificationBell />
+        </div>
+        <div className="px-8 py-8 flex-1">
           <Outlet />
         </div>
       </main>

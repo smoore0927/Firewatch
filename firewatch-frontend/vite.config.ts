@@ -14,6 +14,17 @@ export default defineConfig({
   },
   build: {
     target: 'baseline-widely-available',
+    rollupOptions: {
+      output: {
+        // Split the heaviest vendor libs into their own chunks so no single
+        // route chunk (notably the chart-heavy dashboard) blows past the
+        // 500 kB warning threshold.
+        manualChunks: {
+          recharts: ['recharts'],
+          html2canvas: ['html2canvas'],
+        },
+      },
+    },
   },
   server: {
     port: 3000,

@@ -29,7 +29,7 @@ class LoginResponse(BaseModel):
     must_change_password: bool
 
     @field_serializer("created_at")
-    def _ser_created_at(self, dt: datetime) -> str | None:
+    def _ser_created_at(self, dt: datetime) -> str:
         return serialize_utc_datetime(dt)
 
 

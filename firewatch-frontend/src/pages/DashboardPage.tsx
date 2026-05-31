@@ -13,7 +13,6 @@ import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
 import ExportReportDialog from '@/components/dashboard/ExportReportDialog'
 import { DateRangePicker, type RangePreset } from '@/components/DateRangePicker'
-import NotificationBell from '@/components/layout/NotificationBell'
 
 const SEVERITY_COLORS: Record<Severity, string> = {
   low: '#22c55e',
@@ -151,7 +150,6 @@ export default function DashboardPage() {
           <p className="text-sm text-muted-foreground">{scopeLabel}</p>
         </div>
         <div className="flex items-center gap-2">
-          <NotificationBell />
           <DateRangePicker
             start={startDate}
             end={endDate}
@@ -221,7 +219,7 @@ export default function DashboardPage() {
                 <CardTitle className="text-sm font-medium">Open</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold">{summary.by_status['open'] ?? 0}</p>
+                <p className="text-3xl font-bold">{summary.by_status.open ?? 0}</p>
                 <CardDescription>Awaiting action</CardDescription>
               </CardContent>
             </Card>
@@ -231,7 +229,7 @@ export default function DashboardPage() {
                 <CardTitle className="text-sm font-medium">In Progress</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold">{summary.by_status['in_progress'] ?? 0}</p>
+                <p className="text-3xl font-bold">{summary.by_status.in_progress ?? 0}</p>
                 <CardDescription>Being addressed</CardDescription>
               </CardContent>
             </Card>

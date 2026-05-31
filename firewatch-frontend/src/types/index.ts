@@ -48,6 +48,18 @@ export type RiskUpdate = components['schemas']['RiskUpdate']
 export type ImportResultRow = components['schemas']['ImportResultRow']
 export type ImportResult = components['schemas']['ImportResult']
 
+// -------------------------------------------------------------------------
+// Control frameworks
+// -------------------------------------------------------------------------
+
+export type ControlFramework = components['schemas']['ControlFrameworkResponse']
+export type Control = components['schemas']['ControlResponse']
+export type FrameworkImportResult = components['schemas']['FrameworkImportResult']
+export type FrameworkImportUrlRequest = components['schemas']['FrameworkImportUrlRequest']
+export type FrameworkUpdateRequest = { name?: string; version?: string; description?: string }
+export type RiskControlMapping = components['schemas']['RiskControlResponse']
+export type RiskControlCreate = components['schemas']['RiskControlCreate']
+
 export type BulkReassignRequest = components['schemas']['BulkReassignRequest']
 export type BulkStatusRequest = components['schemas']['BulkStatusRequest']
 export type BulkRescoreRequest = components['schemas']['BulkRescoreRequest']
@@ -163,4 +175,9 @@ export function scoreBadgeClass(score: number): string {
     Critical: 'bg-red-100    text-red-800    dark:bg-red-900/40    dark:text-red-200',
   }
   return map[label]
+}
+
+/** Formats a likelihood/impact pair consistently as "L × I" using the proper × glyph. Order is always likelihood first, impact second. */
+export function formatLikelihoodImpact(likelihood: number, impact: number): string {
+  return `${likelihood} × ${impact}`
 }

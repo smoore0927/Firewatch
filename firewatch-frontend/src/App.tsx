@@ -16,26 +16,39 @@
  *   that still use a layout, without repeating the auth check.
  */
 import { Routes, Route, Navigate } from 'react-router-dom'
+import { Suspense, lazy } from 'react'
 import ProtectedRoute from '@/components/layout/ProtectedRoute'
 import AdminRoute from '@/components/layout/AdminRoute'
 import AppLayout from '@/components/layout/AppLayout'
 import SettingsLayout from '@/components/layout/SettingsLayout'
-import LoginPage from '@/pages/LoginPage'
-import DashboardPage from '@/pages/DashboardPage'
-import ActionQueuePage from '@/pages/ActionQueuePage'
-import AnalyticsPage from '@/pages/AnalyticsPage'
-import RisksPage from '@/pages/RisksPage'
-import RiskDetailPage from '@/pages/RiskDetailPage'
-import RiskFormPage from '@/pages/RiskFormPage'
-import SettingsPasswordPage from '@/pages/SettingsPasswordPage'
-import SettingsAppearancePage from '@/pages/SettingsAppearancePage'
-import SettingsUsersPage from '@/pages/SettingsUsersPage'
-import SettingsApiKeysPage from '@/pages/SettingsApiKeysPage'
-import SettingsWebhooksPage from '@/pages/SettingsWebhooksPage'
-import AuditLogPage from '@/pages/AuditLogPage'
+
+// Page components are route-level and loaded on demand to keep the initial
+// bundle small. The app shell (layouts/route guards above) stays eager so the
+// chrome renders instantly while a page chunk streams in.
+const LoginPage = lazy(() => import('@/pages/LoginPage'))
+const DashboardPage = lazy(() => import('@/pages/DashboardPage'))
+const ActionQueuePage = lazy(() => import('@/pages/ActionQueuePage'))
+const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage'))
+const RisksPage = lazy(() => import('@/pages/RisksPage'))
+const RiskDetailPage = lazy(() => import('@/pages/RiskDetailPage'))
+const RiskFormPage = lazy(() => import('@/pages/RiskFormPage'))
+const SettingsPasswordPage = lazy(() => import('@/pages/SettingsPasswordPage'))
+const SettingsAppearancePage = lazy(() => import('@/pages/SettingsAppearancePage'))
+const SettingsUsersPage = lazy(() => import('@/pages/SettingsUsersPage'))
+const SettingsApiKeysPage = lazy(() => import('@/pages/SettingsApiKeysPage'))
+const SettingsFrameworksPage = lazy(() => import('@/pages/SettingsFrameworksPage'))
+const SettingsWebhooksPage = lazy(() => import('@/pages/SettingsWebhooksPage'))
+const AuditLogPage = lazy(() => import('@/pages/AuditLogPage'))
 
 export default function App() {
   return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center h-screen">
+          <p className="text-muted-foreground text-sm">Loading...</p>
+        </div>
+      }
+    >
     <Routes>
       {/* Public routes */}
       <Route path="/login" element={<LoginPage />} />
@@ -71,6 +84,7 @@ export default function App() {
             </Route>
             <Route element={<AdminRoute roles={['admin', 'security_analyst']} />}>
               <Route path="api-keys" element={<SettingsApiKeysPage />} />
+              <Route path="frameworks" element={<SettingsFrameworksPage />} />
             </Route>
           </Route>
         </Route>
@@ -79,5 +93,6 @@ export default function App() {
       {/* Catch-all */}
       <Route path="*" element={<Navigate to="/risks" replace />} />
     </Routes>
+    </Suspense>
   )
 }
