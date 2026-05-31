@@ -106,6 +106,9 @@ export default function ImportRisksDialog({ open, onClose, onImported }: Props) 
               Upload a CSV file with risk data. Download the template below to see the
               expected format and column headers.
             </p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Optionally include a <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">created_at</code> column (ISO date, e.g. 2024-01-15) to preserve the original creation date of existing risks. If left blank, it defaults to the upload time.
+            </p>
           </div>
           <button
             type="button"

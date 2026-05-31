@@ -48,7 +48,7 @@ class AssessmentResponse(BaseModel):
     model_config = {"from_attributes": True}
 
     @field_serializer("assessed_at")
-    def _ser_assessed_at(self, dt: datetime) -> str | None:
+    def _ser_assessed_at(self, dt: datetime) -> str:
         return serialize_utc_datetime(dt)
 
 
@@ -99,7 +99,11 @@ class ResponseOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
-    @field_serializer("start_date", "target_date", "completion_date", "created_at")
+    @field_serializer("created_at")
+    def _ser_created_at(self, dt: datetime) -> str:
+        return serialize_utc_datetime(dt)
+
+    @field_serializer("start_date", "target_date", "completion_date")
     def _ser_datetimes(self, dt: datetime | None) -> str | None:
         return serialize_utc_datetime(dt)
 
@@ -119,6 +123,7 @@ class RiskCreate(BaseModel):
     owner_id: Optional[int] = None          # defaults to the creating user if omitted
     review_frequency_days: Optional[int] = Field(None, ge=1, le=3650)
     next_review_date: Optional[date] = None
+    created_at: Optional[datetime] = None
     # Inline initial assessment — optional at creation, can be added later
     likelihood: Optional[int] = Field(None, ge=1, le=5)
     impact: Optional[int] = Field(None, ge=1, le=5)
@@ -167,7 +172,7 @@ class HistoryResponse(BaseModel):
     model_config = {"from_attributes": True}
 
     @field_serializer("changed_at")
-    def _ser_changed_at(self, dt: datetime) -> str | None:
+    def _ser_changed_at(self, dt: datetime) -> str:
         return serialize_utc_datetime(dt)
 
 
@@ -197,7 +202,11 @@ class RiskResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
-    @field_serializer("created_at", "updated_at")
+    @field_serializer("created_at")
+    def _ser_created_at(self, dt: datetime) -> str:
+        return serialize_utc_datetime(dt)
+
+    @field_serializer("updated_at")
     def _ser_datetimes(self, dt: datetime | None) -> str | None:
         return serialize_utc_datetime(dt)
 

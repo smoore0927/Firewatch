@@ -178,21 +178,24 @@ class RiskService:
     # -----------------------------------------------------------------------
 
     def create_risk(self, risk_data: RiskCreate, created_by: User) -> Risk:
-        risk = Risk(
-            risk_id=self._generate_risk_id(),
-            title=risk_data.title,
-            description=risk_data.description,
-            threat_source=risk_data.threat_source,
-            threat_event=risk_data.threat_event,
-            vulnerability=risk_data.vulnerability,
-            affected_asset=risk_data.affected_asset,
-            category=risk_data.category,
-            owner_id=risk_data.owner_id if risk_data.owner_id else created_by.id,
-            created_by_id=created_by.id,
-            status=RiskStatus.open,
-            review_frequency_days=risk_data.review_frequency_days,
-            next_review_date=risk_data.next_review_date,
-        )
+        kwargs = {
+            "risk_id": self._generate_risk_id(),
+            "title": risk_data.title,
+            "description": risk_data.description,
+            "threat_source": risk_data.threat_source,
+            "threat_event": risk_data.threat_event,
+            "vulnerability": risk_data.vulnerability,
+            "affected_asset": risk_data.affected_asset,
+            "category": risk_data.category,
+            "owner_id": risk_data.owner_id if risk_data.owner_id else created_by.id,
+            "created_by_id": created_by.id,
+            "status": RiskStatus.open,
+            "review_frequency_days": risk_data.review_frequency_days,
+            "next_review_date": risk_data.next_review_date,
+        }
+        if risk_data.created_at is not None:
+            kwargs["created_at"] = risk_data.created_at
+        risk = Risk(**kwargs)
         self.db.add(risk)
         # flush writes the INSERT so risk.id is populated, but doesn't commit yet —
         # the whole operation (risk + assessment) commits together or not at all

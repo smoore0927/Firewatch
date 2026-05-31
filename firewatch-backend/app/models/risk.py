@@ -120,6 +120,11 @@ class Risk(Base):
         back_populates="risk",
         cascade="all, delete-orphan",
     )
+    controls = relationship(
+        "RiskControl",
+        back_populates="risk",
+        cascade="all, delete-orphan",
+    )
     history = relationship(
         "RiskHistory",
         back_populates="risk",

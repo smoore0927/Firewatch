@@ -106,13 +106,13 @@ export async function generateRiskReportPdf(
   y += 6
 
   const s = data.summary
-  const summaryRows: Array<[string, string]> = [
+  const summaryRows: [string, string][] = [
     ['Total Risks', String(s.total)],
-    ['Open', String(s.by_status['open'] ?? 0)],
-    ['In Progress', String(s.by_status['in_progress'] ?? 0)],
-    ['Mitigated', String(s.by_status['mitigated'] ?? 0)],
-    ['Accepted', String(s.by_status['accepted'] ?? 0)],
-    ['Closed', String(s.by_status['closed'] ?? 0)],
+    ['Open', String(s.by_status.open ?? 0)],
+    ['In Progress', String(s.by_status.in_progress ?? 0)],
+    ['Mitigated', String(s.by_status.mitigated ?? 0)],
+    ['Accepted', String(s.by_status.accepted ?? 0)],
+    ['Closed', String(s.by_status.closed ?? 0)],
     ['Overdue Responses', String(s.overdue_responses)],
     ['Overdue Reviews', String(s.overdue_reviews)],
   ]
@@ -232,7 +232,7 @@ export async function generateRiskReportPdf(
         }
       },
     })
-  } else if (data.risks && data.risks.length === 0) {
+  } else if (data.risks?.length === 0) {
     y = ensureSpace(doc, y, 12)
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(13)

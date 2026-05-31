@@ -46,5 +46,5 @@ class RiskReportResponse(BaseModel):
     risks: list[RiskReportRow] | None
 
     @field_serializer("generated_at")
-    def _ser_generated_at(self, dt: datetime) -> str | None:
+    def _ser_generated_at(self, dt: datetime) -> str:
         return serialize_utc_datetime(dt)

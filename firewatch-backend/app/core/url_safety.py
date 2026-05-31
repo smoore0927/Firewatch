@@ -1,15 +1,16 @@
 """SSRF defense for outbound webhook deliveries.
 
 `validate_outbound_url` enforces that a user-supplied target URL is safe to
-POST to from inside the application network. In production (DEBUG=False) it
-rejects non-HTTPS schemes and any hostname whose DNS resolution touches a
-non-globally-routable IP (loopback, link-local incl. 169.254.169.254 cloud
-metadata, RFC 1918 private, multicast, reserved, unspecified). In DEBUG it
-only validates the scheme so devs can target localhost / docker-compose / LAN.
+POST to from inside the application network. In ALL modes it rejects any
+hostname whose DNS resolution touches a non-globally-routable IP (loopback
+incl. 127.0.0.0/8 and ::1, link-local incl. 169.254.169.254 cloud metadata,
+RFC 1918 private, multicast, reserved, unspecified). DEBUG only relaxes the
+scheme (plain http:// is allowed) and disables IP pinning so devs can target
+docker-compose / LAN hostnames and SNI-less local targets by hostname.
 
-In production it also pins the resolved IP and returns it so callers can
-connect to the IP literal (closing the DNS-rebinding window between validate
-and connect).
+In production it requires https:// and also pins the resolved IP, returning it
+so callers can connect to the IP literal (closing the DNS-rebinding window
+between validate and connect).
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ def validate_outbound_url(url: str) -> ResolvedTarget:
     In production, `pinned_ip` is the first globally-routable IP from DNS
     resolution and callers should connect to it directly. In DEBUG mode
     `pinned_ip` is None and callers should connect to the hostname as-is.
+    The private/internal-IP rejection runs in both modes.
     """
     parsed = urlparse(url)
 
@@ -48,10 +50,7 @@ def validate_outbound_url(url: str) -> ResolvedTarget:
     default_port = 443 if parsed.scheme == "https" else 80
     pinned_port = parsed.port if parsed.port is not None else default_port
 
-    if settings.DEBUG:
-        return ResolvedTarget(parsed=parsed, pinned_ip=None, pinned_port=pinned_port)
-
-    if parsed.scheme != "https":
+    if not settings.DEBUG and parsed.scheme != "https":
         raise ValueError("non-HTTPS scheme not allowed in production")
 
     try:
@@ -76,5 +75,8 @@ def validate_outbound_url(url: str) -> ResolvedTarget:
 
     if first_global is None:
         raise ValueError("DNS resolution returned no addresses")
+
+    if settings.DEBUG:
+        return ResolvedTarget(parsed=parsed, pinned_ip=None, pinned_port=pinned_port)
 
     return ResolvedTarget(parsed=parsed, pinned_ip=first_global, pinned_port=pinned_port)

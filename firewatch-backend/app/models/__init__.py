@@ -17,3 +17,9 @@ from app.models.webhook import (  # noqa: F401
 )
 from app.models.scheduler import SchedulerState  # noqa: F401
 from app.models.notification import Notification, NotificationType  # noqa: F401
+from app.models.control import (  # noqa: F401
+    ControlFramework,
+    Control,
+    RiskControl,
+    DeletedFrameworkSeed,
+)

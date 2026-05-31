@@ -33,7 +33,7 @@ TICK_HOUR_UTC = 9
 
 def run_daily_tick(db: Session) -> None:
     """Run the two daily jobs idempotently. Safe to call any number of times per day."""
-    today = datetime.now(timezone.utc).date()
+    today = date.today()
     _ensure_state_row(db)
     _run_review_digest(db, today)
     _run_response_overdue(db, today)

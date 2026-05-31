@@ -20,6 +20,13 @@ vi.mock('@/services/api', () => ({
   usersApi: {
     listAssignable: vi.fn().mockResolvedValue([]),
   },
+  frameworksApi: {
+    getFrameworks: vi.fn().mockResolvedValue([]),
+    getFrameworkControls: vi.fn().mockResolvedValue([]),
+    getRiskControls: vi.fn().mockResolvedValue([]),
+    addRiskControl: vi.fn(),
+    deleteRiskControl: vi.fn(),
+  },
   ApiError: class ApiError extends Error {
     public status: number
     constructor(status: number, message: string) {

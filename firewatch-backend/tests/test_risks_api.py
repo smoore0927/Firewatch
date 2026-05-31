@@ -794,6 +794,20 @@ def test_import_malformed_csv_returns_400(client, admin_user, login_as):
     assert resp.status_code == 400
 
 
+def test_import_over_cap_is_413(client, admin_user, login_as, monkeypatch):
+    # Shrink the cap so a tiny payload trips the chunked-read 413 without 5 MB.
+    from app.api import risks
+
+    monkeypatch.setattr(risks, "MAX_IMPORT_BYTES", 1024)
+    login_as(admin_user)
+    resp = client.post(
+        "/api/risks/import",
+        files={"file": ("big.csv", b"x" * 2048, "text/csv")},
+    )
+    assert resp.status_code == 413
+    assert resp.json()["detail"] == "CSV upload exceeds 5 MB limit"
+
+
 def test_import_empty_file_returns_400(client, admin_user, login_as):
     login_as(admin_user)
     resp = client.post(

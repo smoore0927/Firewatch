@@ -84,6 +84,10 @@ class Settings(BaseSettings):
     # Audience expected in the SET's aud claim. Defaults to OIDC_CLIENT_ID if not set.
     CAEP_AUDIENCE: str | None = None
 
+    # Optional default URL for the NIST 800-53 Rev 5 OSCAL catalog. Per-request
+    # URL on POST /frameworks/import-from-url takes priority; this is a fallback default.
+    NIST_800_53_CATALOG_URL: str | None = None
+
     # --- SCIM 2.0 provisioning ---
     SCIM_ENABLED: bool = False
     SCIM_BEARER_TOKEN: str | None = None  # Long-lived shared secret; set in IdP's SCIM connector

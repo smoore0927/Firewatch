@@ -69,7 +69,9 @@ async function request<T>(
   if (!res.ok) {
     let detail = `HTTP ${res.status}`
     try {
-      const body = await res.json()
+      const body = (await res.json()) as {
+        detail?: string | { msg: string; loc?: string[]; type?: string }[]
+      }
       if (typeof body.detail === 'string') {
         detail = body.detail
       } else if (Array.isArray(body.detail) && body.detail.length > 0) {
@@ -131,7 +133,7 @@ export const authApi = {
 // Risks
 // -------------------------------------------------------------------------
 
-import type { ActionQueueResponse, ApiKey, ApiKeyCreated, ApiKeyWithOwner, AuditLogListResponse, BulkReassignRequest, BulkRescoreRequest, BulkRiskResult, BulkStatusRequest, DashboardSummary, ImportResult, MarkAllReadResponse, NotificationListResponse, ResidualReductionResponse, ResponseCreate, ResponseUpdate, Risk, RiskCreate, RiskListResponse, RiskReport, RiskUpdate, ScoreHistoryResponse, ScoreTotalsBySeverityResponse, Severity, UnreadCountResponse, User, UserRole, VelocityMTTMResponse, VelocityThroughputResponse, WebhookDeliveryList, WebhookSubscription, WebhookSubscriptionCreate, WebhookSubscriptionCreated, WebhookSubscriptionUpdate } from '@/types'
+import type { ActionQueueResponse, ApiKey, ApiKeyCreated, ApiKeyWithOwner, AuditLogListResponse, BulkReassignRequest, BulkRescoreRequest, BulkRiskResult, BulkStatusRequest, Control, ControlFramework, DashboardSummary, FrameworkImportResult, FrameworkImportUrlRequest, FrameworkUpdateRequest, ImportResult, MarkAllReadResponse, NotificationListResponse, ResidualReductionResponse, ResponseCreate, ResponseUpdate, Risk, RiskControlCreate, RiskControlMapping, RiskCreate, RiskListResponse, RiskReport, RiskUpdate, ScoreHistoryResponse, ScoreTotalsBySeverityResponse, Severity, UnreadCountResponse, User, UserRole, VelocityMTTMResponse, VelocityThroughputResponse, WebhookDeliveryList, WebhookSubscription, WebhookSubscriptionCreate, WebhookSubscriptionCreated, WebhookSubscriptionUpdate } from '@/types'
 
 // Parses a Content-Disposition header value to extract the filename.
 // Handles both `filename="x.csv"` and the RFC 5987 `filename*=UTF-8''x.csv` form.
@@ -181,7 +183,9 @@ async function rawFetchWithRetry(
 async function throwFromResponse(res: Response): Promise<never> {
   let detail = `HTTP ${res.status}`
   try {
-    const body = await res.json()
+    const body = (await res.json()) as {
+      detail?: string | { msg: string }[]
+    }
     if (typeof body.detail === 'string') {
       detail = body.detail
     } else if (Array.isArray(body.detail) && body.detail.length > 0) {
@@ -284,6 +288,96 @@ export const risksApi = {
 
   deleteResponse: (riskId: string, responseId: number) =>
     request<void>(`/api/risks/${riskId}/responses/${responseId}`, { method: 'DELETE' }),
+}
+
+// -------------------------------------------------------------------------
+// Control frameworks
+// -------------------------------------------------------------------------
+
+export const frameworksApi = {
+  getFrameworks: () => request<ControlFramework[]>('/api/frameworks'),
+
+  getFrameworkControls: (frameworkId: number, q?: string) => {
+    const query = q ? `?q=${encodeURIComponent(q)}` : ''
+    return request<Control[]>(`/api/frameworks/${frameworkId}/controls${query}`)
+  },
+
+  importFrameworkFile: async (
+    file: File,
+    opts?: { framework_name?: string; version?: string },
+  ): Promise<FrameworkImportResult> => {
+    const form = new FormData()
+    form.append('file', file)
+    // Note: do NOT set Content-Type — the browser sets the multipart boundary.
+    const qs = new URLSearchParams()
+    if (opts?.framework_name) qs.set('framework_name', opts.framework_name)
+    if (opts?.version) qs.set('version', opts.version)
+    const query = qs.toString() ? `?${qs.toString()}` : ''
+    const res = await rawFetchWithRetry(`/api/frameworks/import${query}`, {
+      method: 'POST',
+      body: form,
+    })
+    if (!res.ok) await throwFromResponse(res)
+    return res.json() as Promise<FrameworkImportResult>
+  },
+
+  importFrameworkFromUrl: (body: FrameworkImportUrlRequest) =>
+    request<FrameworkImportResult>('/api/frameworks/import-from-url', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  updateFramework: (
+    frameworkId: number,
+    body: FrameworkUpdateRequest,
+  ) =>
+    request<ControlFramework>(`/api/frameworks/${frameworkId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+
+  reimportFrameworkFile: async (
+    frameworkId: number,
+    file: File,
+    opts?: { version?: string },
+  ): Promise<FrameworkImportResult> => {
+    const form = new FormData()
+    form.append('file', file)
+    // Note: do NOT set Content-Type — the browser sets the multipart boundary.
+    const qs = new URLSearchParams()
+    if (opts?.version) qs.set('version', opts.version)
+    const query = qs.toString() ? `?${qs.toString()}` : ''
+    const res = await rawFetchWithRetry(`/api/frameworks/${frameworkId}/reimport${query}`, {
+      method: 'POST',
+      body: form,
+    })
+    if (!res.ok) await throwFromResponse(res)
+    return res.json() as Promise<FrameworkImportResult>
+  },
+
+  reimportFrameworkFromUrl: (
+    frameworkId: number,
+    body: { url: string; version?: string },
+  ) =>
+    request<FrameworkImportResult>(`/api/frameworks/${frameworkId}/reimport-from-url`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  deleteFramework: (frameworkId: number) =>
+    request<void>(`/api/frameworks/${frameworkId}`, { method: 'DELETE' }),
+
+  getRiskControls: (riskId: string) =>
+    request<RiskControlMapping[]>(`/api/risks/${riskId}/controls`),
+
+  addRiskControl: (riskId: string, body: RiskControlCreate) =>
+    request<RiskControlMapping>(`/api/risks/${riskId}/controls`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  deleteRiskControl: (riskId: string, mappingId: number) =>
+    request<void>(`/api/risks/${riskId}/controls/${mappingId}`, { method: 'DELETE' }),
 }
 
 // -------------------------------------------------------------------------

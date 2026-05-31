@@ -43,6 +43,7 @@ from app.api import (
     auth,
     caep,
     dashboard,
+    frameworks,
     internal,
     notifications,
     reports,
@@ -60,8 +61,27 @@ from app.services import scheduler
 logger = logging.getLogger(__name__)
 
 
+def _assert_safe_runtime_config() -> None:
+    """Refuse to boot with DEBUG=True against a non-SQLite (prod) database."""
+    if not settings.DEBUG:
+        return
+    if not settings.DATABASE_URL.startswith("sqlite"):
+        raise RuntimeError(
+            "DEBUG must be False when running against a non-SQLite (production) "
+            "database: it exposes /docs, /redoc, /openapi.json and disables the "
+            "Secure flag on auth cookies. Set DEBUG=False for this deployment."
+        )
+    logger.warning(
+        "DEBUG=True: interactive docs (/docs, /redoc, /openapi.json) are exposed "
+        "and auth cookies are NOT Secure-flagged. Intended for local dev only."
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Fail fast on an insecure DEBUG deployment before serving any traffic.
+    _assert_safe_runtime_config()
+
     # Resolve secrets from the configured provider and inject into settings
     # before anything else reads them. SECRETS_BACKEND=env is a no-op.
     if settings.SECRETS_BACKEND != "env":
@@ -83,6 +103,15 @@ async def lifespan(app: FastAPI):
     if settings.DATABASE_URL.startswith("sqlite"):
         alembic_cfg = Config(str(Path(__file__).parent / "alembic.ini"))
         command.upgrade(alembic_cfg, "head")
+
+    # Idempotent: seeds the built-in control frameworks if none exist yet.
+    from app.models.database import SessionLocal
+    from app.services.control_seed import seed_control_frameworks
+    seed_db = SessionLocal()
+    try:
+        seed_control_frameworks(seed_db)
+    finally:
+        seed_db.close()
 
     scheduler_task = asyncio.create_task(scheduler.daily_tick_loop())
     try:
@@ -143,6 +172,7 @@ app.include_router(caep.router, prefix="/api")
 app.include_router(scim.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(risks.router, prefix="/api")
+app.include_router(frameworks.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(analytics.router, prefix="/api")
 app.include_router(audit.router, prefix="/api")

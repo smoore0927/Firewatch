@@ -36,6 +36,18 @@ def admin_row(db) -> User:
     return user
 
 
+@pytest.fixture(autouse=True)
+def _default_public_dns(monkeypatch):
+    """Default every hostname to a public IP so validate_outbound_url (which now
+    resolves DNS in all modes, including DEBUG) stays hermetic. Tests that need a
+    specific resolution override this with their own monkeypatch.setattr."""
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *a, **kw: [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))],
+    )
+
+
 @pytest.fixture
 def patch_session_local(monkeypatch, db):
     """Replace SessionLocal with a factory that yields the in-memory db session.
@@ -389,6 +401,14 @@ def test_delivery_marks_failed_when_target_now_resolves_internal(
     monkeypatch.setattr(webhook_service, "RETRY_BACKOFF", [0, 0, 0])
     monkeypatch.setattr(settings, "DEBUG", True)
 
+    # create() validates in DEBUG and now resolves DNS; keep it hermetic and
+    # public so create() succeeds.
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *a, **kw: [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))],
+    )
+
     sub, _ = webhook_service.create(
         db,
         name="rebind",
@@ -459,6 +479,13 @@ def test_delivery_pins_ipv4_and_sets_host_and_sni(
     monkeypatch.setattr(webhook_service, "RETRY_BACKOFF", [0, 0, 0])
     monkeypatch.setattr(settings, "DEBUG", True)
 
+    # create() validates in DEBUG and now resolves DNS; keep it hermetic.
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *a, **kw: [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))],
+    )
+
     sub, _ = webhook_service.create(
         db,
         name="pin-v4",
@@ -501,6 +528,13 @@ def test_delivery_brackets_ipv6_pin(
     monkeypatch.setattr(webhook_service, "RETRY_BACKOFF", [0, 0, 0])
     monkeypatch.setattr(settings, "DEBUG", True)
 
+    # create() validates in DEBUG and now resolves DNS; keep it hermetic.
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *a, **kw: [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))],
+    )
+
     sub, _ = webhook_service.create(
         db,
         name="pin-v6",
@@ -532,6 +566,13 @@ def test_delivery_does_not_pin_in_debug_mode(
 ):
     monkeypatch.setattr(webhook_service, "RETRY_BACKOFF", [0, 0, 0])
     monkeypatch.setattr(settings, "DEBUG", True)
+
+    # DEBUG now resolves DNS (but does not pin); keep it hermetic and public.
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *a, **kw: [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))],
+    )
 
     sub, _ = webhook_service.create(
         db,

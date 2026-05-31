@@ -12,7 +12,7 @@
  */
 import { Outlet, NavLink } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { KeyRound, Key, Palette, ScrollText, UserCog, Webhook, ChevronLeft, ChevronRight } from 'lucide-react'
+import { KeyRound, Key, Library, Palette, ScrollText, UserCog, Webhook, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useResizableSidebar } from '@/lib/useResizableSidebar'
 import { cn } from '@/lib/utils'
@@ -109,6 +109,17 @@ export default function SettingsLayout() {
                 >
                   <Key className="h-4 w-4 shrink-0" />
                   {!isNarrow && <span>API keys</span>}
+                </NavLink>
+              )}
+
+              {(user?.role === 'admin' || user?.role === 'security_analyst') && (
+                <NavLink
+                  to="/settings/frameworks"
+                  title={isNarrow ? 'Frameworks' : undefined}
+                  className={linkClass}
+                >
+                  <Library className="h-4 w-4 shrink-0" />
+                  {!isNarrow && <span>Frameworks</span>}
                 </NavLink>
               )}
 

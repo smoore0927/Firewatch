@@ -12,6 +12,18 @@ from app.models.audit_log import AuditLog
 from app.models.webhook import WebhookSubscription
 
 
+@pytest.fixture(autouse=True)
+def _default_public_dns(monkeypatch):
+    """Default every hostname to a public IP so DEBUG-mode create() (which now
+    resolves DNS in all modes) stays hermetic. Tests that need a specific
+    resolution override this with their own monkeypatch.setattr."""
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *a, **kw: [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))],
+    )
+
+
 def _create(client, **overrides) -> dict:
     payload = {
         "name": "test-sub",
@@ -271,12 +283,14 @@ def test_create_rejects_http_in_prod(client, admin_user, login_as, monkeypatch):
 
 def test_create_accepts_http_in_debug(client, admin_user, login_as):
     # The .env / conftest default is DEBUG=True; no flip required.
+    # http:// is allowed in DEBUG, but the host must still resolve to a public
+    # IP (default getaddrinfo mock returns one).
     login_as(admin_user)
     resp = client.post(
         "/api/webhooks",
         json={
             "name": "dev",
-            "target_url": "http://localhost:8000/hook",
+            "target_url": "http://public.dev/hook",
             "event_types": ["firewatch.test"],
         },
     )
@@ -312,12 +326,20 @@ def test_create_rejects_internal_resolution_in_prod(
     assert addr in detail
 
 
-@pytest.mark.parametrize("addr", ["127.0.0.1", "10.0.0.5", "169.254.169.254"])
-def test_create_accepts_internal_resolution_in_debug(
-    client, admin_user, login_as, monkeypatch, addr
+@pytest.mark.parametrize(
+    "addr,family",
+    [
+        ("127.0.0.1", socket.AF_INET),
+        ("10.0.0.5", socket.AF_INET),
+        ("169.254.169.254", socket.AF_INET),
+        ("::1", socket.AF_INET6),
+    ],
+)
+def test_create_rejects_internal_resolution_in_debug(
+    client, admin_user, login_as, monkeypatch, addr, family
 ):
-    # DEBUG defaults to True via .env; no DNS check should happen at all.
-    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **kw: _addrinfo(addr))
+    # SSRF fix: private/internal IPs must be rejected even in DEBUG mode.
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **kw: _addrinfo(addr, family))
     login_as(admin_user)
     resp = client.post(
         "/api/webhooks",
@@ -327,7 +349,10 @@ def test_create_accepts_internal_resolution_in_debug(
             "event_types": ["firewatch.test"],
         },
     )
-    assert resp.status_code == 201
+    assert resp.status_code == 422
+    detail = resp.json()["detail"]
+    assert "private/internal IP" in detail
+    assert addr in detail
 
 
 def test_create_rejects_dns_failure_in_prod_with_clean_422(

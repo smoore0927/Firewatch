@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { ApiError, reportsApi } from '@/services/api'
-import { generateRiskReportPdf } from '@/lib/pdf-report'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -54,6 +53,10 @@ export default function ExportReportDialog({
     setIsGenerating(true)
     try {
       const data = await reportsApi.getRiskSummary(start, end, includeRisks)
+      // The PDF toolchain (jspdf / html2canvas) is heavy and only needed when a
+      // report is actually generated, so it is loaded on demand here to keep it
+      // out of the dashboard's initial chunk.
+      const { generateRiskReportPdf } = await import('@/lib/pdf-report')
       await generateRiskReportPdf(data, { matrixEl, chartEl })
       onClose()
     } catch (err) {

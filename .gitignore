@@ -35,6 +35,7 @@ build/Release
 # Cache
 .cache/
 .parcel-cache
+.eslintcache
 .vite/
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
