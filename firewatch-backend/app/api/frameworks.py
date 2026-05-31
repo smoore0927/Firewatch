@@ -98,8 +98,11 @@ async def _fetch_url_bytes(url: str) -> bytes:
 
     scheme = target.parsed.scheme
     hostname = target.parsed.hostname
+    port = target.parsed.port
+    hostport = f"{hostname}:{port}" if port is not None else hostname
     path = target.parsed.path or "/"
     query = f"?{target.parsed.query}" if target.parsed.query else ""
+    safe_url = f"{scheme}://{hostport}{path}{query}"
 
     if target.pinned_ip is not None:
         ip = target.pinned_ip
@@ -108,7 +111,7 @@ async def _fetch_url_bytes(url: str) -> bytes:
         request_headers = {"Host": hostname}
         extensions = {"sni_hostname": hostname}
     else:
-        connect_url = url
+        connect_url = safe_url
         request_headers = {}
         extensions = {}
 
