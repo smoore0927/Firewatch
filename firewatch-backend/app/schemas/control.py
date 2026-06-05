@@ -76,6 +76,17 @@ class ControlResponse(BaseModel):
         )
 
 
+class ControlFamilyResponse(BaseModel):
+    id: int
+    name: str
+    display_label: Optional[str] = None
+    description: Optional[str] = None
+    sort_order: Optional[int] = None
+    control_count: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class RiskControlCreate(BaseModel):
     control_id: int
     mapping_type: str = Field(default="mitigates")

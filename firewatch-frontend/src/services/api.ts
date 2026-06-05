@@ -133,7 +133,7 @@ export const authApi = {
 // Risks
 // -------------------------------------------------------------------------
 
-import type { ActionQueueResponse, ApiKey, ApiKeyCreated, ApiKeyWithOwner, AuditLogListResponse, BulkReassignRequest, BulkRescoreRequest, BulkRiskResult, BulkStatusRequest, Control, ControlFramework, DashboardSummary, FrameworkImportResult, FrameworkImportUrlRequest, FrameworkUpdateRequest, ImportResult, MarkAllReadResponse, NotificationListResponse, ResidualReductionResponse, ResponseCreate, ResponseUpdate, Risk, RiskControlCreate, RiskControlMapping, RiskCreate, RiskListResponse, RiskReport, RiskUpdate, ScoreHistoryResponse, ScoreTotalsBySeverityResponse, Severity, UnreadCountResponse, User, UserRole, VelocityMTTMResponse, VelocityThroughputResponse, WebhookDeliveryList, WebhookSubscription, WebhookSubscriptionCreate, WebhookSubscriptionCreated, WebhookSubscriptionUpdate } from '@/types'
+import type { ActionQueueResponse, ApiKey, ApiKeyCreated, ApiKeyWithOwner, AuditLogListResponse, BulkReassignRequest, BulkRescoreRequest, BulkRiskResult, BulkStatusRequest, Control, ControlFamily, ControlFramework, DashboardSummary, FrameworkImportResult, FrameworkImportUrlRequest, FrameworkUpdateRequest, ImportResult, MarkAllReadResponse, NotificationListResponse, ResidualReductionResponse, ResponseCreate, ResponseUpdate, Risk, RiskControlCreate, RiskControlMapping, RiskCreate, RiskListResponse, RiskReport, RiskUpdate, ScoreHistoryResponse, ScoreTotalsBySeverityResponse, Severity, UnreadCountResponse, User, UserRole, VelocityMTTMResponse, VelocityThroughputResponse, WebhookDeliveryList, WebhookSubscription, WebhookSubscriptionCreate, WebhookSubscriptionCreated, WebhookSubscriptionUpdate } from '@/types'
 
 // Parses a Content-Disposition header value to extract the filename.
 // Handles both `filename="x.csv"` and the RFC 5987 `filename*=UTF-8''x.csv` form.
@@ -297,8 +297,17 @@ export const risksApi = {
 export const frameworksApi = {
   getFrameworks: () => request<ControlFramework[]>('/api/frameworks'),
 
-  getFrameworkControls: (frameworkId: number, q?: string) => {
-    const query = q ? `?q=${encodeURIComponent(q)}` : ''
+  getFrameworkFamilies: (frameworkId: number) =>
+    request<ControlFamily[]>(`/api/frameworks/${frameworkId}/families`),
+
+  getFrameworkControls: (
+    frameworkId: number,
+    opts?: { search?: string; family?: string },
+  ) => {
+    const qs = new URLSearchParams()
+    if (opts?.search) qs.set('q', opts.search)
+    if (opts?.family) qs.set('family', opts.family)
+    const query = qs.toString() ? `?${qs.toString()}` : ''
     return request<Control[]>(`/api/frameworks/${frameworkId}/controls${query}`)
   },
 

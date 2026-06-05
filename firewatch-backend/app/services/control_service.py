@@ -3,12 +3,19 @@
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
-from app.models.control import Control, ControlFramework, DeletedFrameworkSeed, RiskControl
+from app.models.control import (
+    Control,
+    ControlFamily,
+    ControlFramework,
+    DeletedFrameworkSeed,
+    RiskControl,
+)
 from app.models.risk import Risk, RiskHistory
 from app.models.user import User
-from app.schemas.control import MAPPING_TYPES, RiskControlCreate
+from app.schemas.control import MAPPING_TYPES, ControlFamilyResponse, RiskControlCreate
 from app.services.control_import import ParsedFramework
 from app.services.risk_service import RiskService
 
@@ -25,7 +32,9 @@ class ControlService:
     def list_frameworks(self) -> list[ControlFramework]:
         return self.db.query(ControlFramework).order_by(ControlFramework.name).all()
 
-    def list_controls(self, framework_id: int, q: str | None = None) -> list[Control]:
+    def list_controls(
+        self, framework_id: int, q: str | None = None, family: str | None = None
+    ) -> list[Control]:
         framework = self.db.query(ControlFramework).filter(ControlFramework.id == framework_id).first()
         if framework is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Framework not found")
@@ -35,10 +44,60 @@ class ControlService:
             .options(joinedload(Control.framework))
             .filter(Control.framework_id == framework_id)
         )
+        if family:
+            query = query.filter(Control.family == family)
         if q:
             pattern = f"%{q}%"
             query = query.filter(Control.control_id.ilike(pattern) | Control.title.ilike(pattern))
         return query.order_by(Control.control_id).all()
+
+    def list_framework_families(self, framework_id: int) -> list["ControlFamilyResponse"]:
+        framework = self.db.query(ControlFramework).filter(ControlFramework.id == framework_id).first()
+        if framework is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Framework not found")
+
+        counts = dict(
+            self.db.query(Control.family, func.count(Control.id))
+            .filter(Control.framework_id == framework_id, Control.family.isnot(None))
+            .group_by(Control.family)
+            .all()
+        )
+
+        authored = (
+            self.db.query(ControlFamily)
+            .filter(ControlFamily.framework_id == framework_id)
+            .all()
+        )
+        seen = {fam.name for fam in authored}
+
+        result: list[ControlFamilyResponse] = [
+            ControlFamilyResponse(
+                id=fam.id,
+                name=fam.name,
+                display_label=fam.display_label,
+                description=fam.description,
+                sort_order=fam.sort_order,
+                control_count=counts.get(fam.name, 0),
+            )
+            for fam in authored
+        ]
+
+        # Synthesize entries for distinct control families with no authored row.
+        for name, count in counts.items():
+            if name in seen:
+                continue
+            result.append(ControlFamilyResponse(
+                id=0,
+                name=name,
+                display_label=None,
+                description=None,
+                sort_order=None,
+                control_count=count,
+            ))
+
+        # Order by sort_order (nulls last) then name.
+        result.sort(key=lambda f: (f.sort_order is None, f.sort_order or 0, f.name))
+        return result
 
     def delete_framework(self, framework_id: int, deleted_by: User) -> str:
         """Delete a framework (and its controls) if no risk mappings reference it.
