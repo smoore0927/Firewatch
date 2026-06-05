@@ -54,6 +54,7 @@ export type ImportResult = components['schemas']['ImportResult']
 
 export type ControlFramework = components['schemas']['ControlFrameworkResponse']
 export type Control = components['schemas']['ControlResponse']
+export type ControlFamily = components['schemas']['ControlFamilyResponse']
 export type FrameworkImportResult = components['schemas']['FrameworkImportResult']
 export type FrameworkImportUrlRequest = components['schemas']['FrameworkImportUrlRequest']
 export type FrameworkUpdateRequest = { name?: string; version?: string; description?: string }

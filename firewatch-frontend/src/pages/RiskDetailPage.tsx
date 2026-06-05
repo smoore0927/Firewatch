@@ -14,7 +14,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { risksApi, usersApi, frameworksApi, ApiError } from '@/services/api'
 import { currentScore, scoreLabel, formatLikelihoodImpact } from '@/types'
-import type { Risk, RiskAssessment, RiskHistory, RiskResponse, RiskStatus, ResponseCreate, ResponseStatus, ResponseType, ResponseUpdate, User, Control, ControlFramework, RiskControlMapping, RiskControlCreate } from '@/types'
+import type { Risk, RiskAssessment, RiskHistory, RiskResponse, RiskStatus, ResponseCreate, ResponseStatus, ResponseType, ResponseUpdate, User, Control, ControlFamily, ControlFramework, RiskControlMapping, RiskControlCreate } from '@/types'
 import { Badge, scoreToBadgeVariant } from '@/components/ui/badge'
 import type { BadgeVariant } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -1008,6 +1008,8 @@ function AddControlForm({
 }>) {
   const [frameworks, setFrameworks] = useState<ControlFramework[]>([])
   const [frameworkId, setFrameworkId] = useState<number | ''>('')
+  const [families, setFamilies] = useState<ControlFamily[]>([])
+  const [family, setFamily] = useState<string>('')
   const [search, setSearch] = useState('')
   const [controls, setControls] = useState<Control[]>([])
   const [controlId, setControlId] = useState<number | ''>('')
@@ -1020,19 +1022,80 @@ function AddControlForm({
     frameworksApi.getFrameworks().then(setFrameworks).catch(() => { /* read-only fallback */ })
   }, [])
 
-  // Debounced control search whenever the framework or query changes.
+  // Load the category list whenever the framework changes. Server order is preserved.
   useEffect(() => {
     if (frameworkId === '') {
+      setFamilies([])
+      return
+    }
+    frameworksApi.getFrameworkFamilies(frameworkId)
+      .then(setFamilies)
+      .catch(() => setFamilies([]))
+  }, [frameworkId])
+
+  // Debounced control search, scoped to the chosen category.
+  useEffect(() => {
+    if (frameworkId === '' || family === '') {
       setControls([])
       return
     }
     const handle = setTimeout(() => {
-      frameworksApi.getFrameworkControls(frameworkId, search.trim() || undefined)
+      frameworksApi.getFrameworkControls(frameworkId, { family, search: search.trim() || undefined })
         .then(setControls)
         .catch(() => setControls([]))
     }, 250)
     return () => clearTimeout(handle)
-  }, [frameworkId, search])
+  }, [frameworkId, family, search])
+
+  const selectedFamily = useMemo(
+    () => families.find((f) => f.name === family) ?? null,
+    [families, family],
+  )
+  const selectedControl = useMemo(
+    () => controls.find((c) => c.id === controlId) ?? null,
+    [controls, controlId],
+  )
+
+  // Group families by display_label. A label shared by 2+ families (the NIST CSF
+  // Function case) becomes an optgroup header; if no label is shared, the list is
+  // flat. Server order is preserved in both the group order and within each group.
+  const familyGroups = useMemo(() => {
+    const labelCounts = new Map<string, number>()
+    for (const fam of families) {
+      const label = fam.display_label ?? fam.name
+      labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1)
+    }
+    const isGrouped = [...labelCounts.values()].some((count) => count >= 2)
+    if (!isGrouped) return { isGrouped, groups: [], headers: [] as string[] }
+
+    const groups: { label: string; families: ControlFamily[] }[] = []
+    const byLabel = new Map<string, ControlFamily[]>()
+    for (const fam of families) {
+      const label = fam.display_label ?? fam.name
+      let group = byLabel.get(label)
+      if (!group) {
+        group = []
+        byLabel.set(label, group)
+        groups.push({ label, families: group })
+      }
+      group.push(fam)
+    }
+    const headers = groups.filter((g) => g.families.length >= 2).map((g) => g.label)
+    return { isGrouped, groups, headers }
+  }, [families])
+
+  function familyOptionText(fam: ControlFamily): string {
+    const colon = fam.name.indexOf(': ')
+    const distinct = colon >= 0 ? fam.name.slice(colon + 2) : (fam.display_label ?? fam.name)
+    return `${distinct} (${fam.control_count})`
+  }
+
+  function handleFrameworkChange(value: string) {
+    setFrameworkId(value ? Number(value) : '')
+    setFamily('')
+    setControlId('')
+    setSearch('')
+  }
 
   async function handleSubmit(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -1067,10 +1130,7 @@ function AddControlForm({
         <select
           id="control-framework"
           value={frameworkId}
-          onChange={(e) => {
-            setFrameworkId(e.target.value ? Number(e.target.value) : '')
-            setControlId('')
-          }}
+          onChange={(e) => handleFrameworkChange(e.target.value)}
           disabled={isSubmitting}
           required
           className={selectClass}
@@ -1085,6 +1145,50 @@ function AddControlForm({
       </div>
 
       {frameworkId !== '' && (
+        <div className="space-y-1">
+          <Label htmlFor="control-category">Category <span aria-hidden="true" className="text-destructive">*</span></Label>
+          {familyGroups.isGrouped && (
+            <p className="text-xs text-muted-foreground">
+              {familyGroups.headers.length > 0
+                ? `Categories are grouped by function (${familyGroups.headers.join(', ')}).`
+                : 'Categories are grouped by function.'}
+            </p>
+          )}
+          <select
+            id="control-category"
+            value={family}
+            onChange={(e) => {
+              setFamily(e.target.value)
+              setControlId('')
+            }}
+            disabled={isSubmitting}
+            required
+            className={selectClass}
+          >
+            <option value="">Select a category…</option>
+            {familyGroups.isGrouped
+              ? familyGroups.groups.map((group) => (
+                  <optgroup key={group.label} label={group.label}>
+                    {group.families.map((fam) => (
+                      <option key={fam.id} value={fam.name}>
+                        {familyOptionText(fam)}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))
+              : families.map((fam) => (
+                  <option key={fam.id} value={fam.name}>
+                    {(fam.display_label ?? fam.name)} ({fam.control_count})
+                  </option>
+                ))}
+          </select>
+          {selectedFamily?.description?.trim() && (
+            <p className="text-xs text-muted-foreground">{selectedFamily.description}</p>
+          )}
+        </div>
+      )}
+
+      {frameworkId !== '' && family !== '' && (
         <>
           <div className="space-y-1">
             <Label htmlFor="control-search">Search controls</Label>
@@ -1118,6 +1222,9 @@ function AddControlForm({
                 ))
               )}
             </select>
+            {selectedControl?.description?.trim() && (
+              <p className="text-xs text-muted-foreground line-clamp-3">{selectedControl.description}</p>
+            )}
           </div>
         </>
       )}

@@ -19,7 +19,7 @@ from sqlalchemy.orm import relationship
 
 from app.models.database import Base
 
-__all__ = ["ControlFramework", "Control", "RiskControl", "DeletedFrameworkSeed"]
+__all__ = ["ControlFramework", "Control", "ControlFamily", "RiskControl", "DeletedFrameworkSeed"]
 
 
 class ControlFramework(Base):
@@ -34,6 +34,7 @@ class ControlFramework(Base):
     created_at = Column(DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP"), nullable=False)
 
     controls = relationship("Control", back_populates="framework", cascade="all, delete-orphan")
+    families = relationship("ControlFamily", back_populates="framework", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<ControlFramework {self.name}>"
@@ -57,6 +58,28 @@ class Control(Base):
 
     def __repr__(self) -> str:
         return f"<Control {self.control_id}>"
+
+
+class ControlFamily(Base):
+    """Authored category-level descriptions, decoupled from controls (matched by name)."""
+
+    __tablename__ = "control_families"
+
+    id = Column(Integer, primary_key=True)
+    framework_id = Column(Integer, ForeignKey("control_frameworks.id"), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    display_label = Column(String(255), nullable=True)
+    description = Column(Text, nullable=True)
+    sort_order = Column(Integer, nullable=True)
+
+    framework = relationship("ControlFramework", back_populates="families")
+
+    __table_args__ = (
+        UniqueConstraint("framework_id", "name", name="uq_control_families_framework_name"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ControlFamily {self.name}>"
 
 
 class RiskControl(Base):

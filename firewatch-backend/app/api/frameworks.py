@@ -19,6 +19,7 @@ from app.core.dependencies import get_current_user, get_db, require_role
 from app.core.uploads import read_upload_capped
 from app.models.user import User, UserRole
 from app.schemas.control import (
+    ControlFamilyResponse,
     ControlFrameworkResponse,
     ControlResponse,
     FrameworkImportResult,
@@ -51,9 +52,19 @@ def list_controls(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
     q: Annotated[Optional[str], Query()] = None,
+    family: Annotated[Optional[str], Query()] = None,
 ) -> list[ControlResponse]:
-    controls = ControlService(db).list_controls(framework_id=framework_id, q=q)
+    controls = ControlService(db).list_controls(framework_id=framework_id, q=q, family=family)
     return [ControlResponse.from_control(c) for c in controls]
+
+
+@router.get("/frameworks/{framework_id}/families")
+def list_framework_families(
+    framework_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> list[ControlFamilyResponse]:
+    return ControlService(db).list_framework_families(framework_id=framework_id)
 
 
 @router.post("/frameworks/import")

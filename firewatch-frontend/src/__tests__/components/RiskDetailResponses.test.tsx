@@ -22,6 +22,7 @@ vi.mock('@/services/api', () => ({
   },
   frameworksApi: {
     getFrameworks: vi.fn().mockResolvedValue([]),
+    getFrameworkFamilies: vi.fn().mockResolvedValue([]),
     getFrameworkControls: vi.fn().mockResolvedValue([]),
     getRiskControls: vi.fn().mockResolvedValue([]),
     addRiskControl: vi.fn(),
