@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Check, Plus, UserCheck, UserX, X } from 'lucide-react'
 import { usersApi, ApiError } from '@/services/api'
+import { useEscapeKey } from '@/lib/useEscapeKey'
 import { useAuth } from '@/context/AuthContext'
 import type { User, UserRole } from '@/types'
 import { Card } from '@/components/ui/card'
@@ -291,14 +292,7 @@ function CreateUserDialog({ open, onClose, onCreated }: Readonly<CreateUserDialo
     }
   }, [open])
 
-  useEffect(() => {
-    if (!open) return
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape' && !isSubmitting) onClose()
-    }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [open, isSubmitting, onClose])
+  useEscapeKey(() => { if (!isSubmitting) onClose() }, open)
 
   if (!open) return null
 

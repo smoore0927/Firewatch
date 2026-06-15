@@ -1,17 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type SyntheticEvent } from 'react'
 import { FileUp, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
-import { ApiError, frameworksApi } from '@/services/api'
+import { ApiError, errorMessage, frameworksApi } from '@/services/api'
 import { useAuth } from '@/context/AuthContext'
+import { formatDate } from '@/lib/format'
 import type { ControlFramework, FrameworkImportResult } from '@/types'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-
-function formatDate(iso: string | null | undefined): React.ReactNode {
-  if (!iso) return <span className="text-muted-foreground">—</span>
-  return new Date(iso).toLocaleString()
-}
 
 function resultMessage(r: FrameworkImportResult): string {
   const label = r.version ? `${r.framework_name} ${r.version}` : r.framework_name
@@ -197,7 +193,7 @@ function FrameworkDialog({
       ref.current?.close()
     } catch (err) {
       // 409 = name collision; surface the server message verbatim.
-      setMetaError(err instanceof ApiError ? err.message : 'Could not save changes. Try again.')
+      setMetaError(errorMessage(err, 'Could not save changes. Try again.'))
     } finally {
       setIsSaving(false)
     }

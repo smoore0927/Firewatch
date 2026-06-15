@@ -3,19 +3,24 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { RiskReport } from '@/types'
 
-vi.mock('@/services/api', () => ({
-  reportsApi: {
-    getRiskSummary: vi.fn(),
-  },
-  ApiError: class ApiError extends Error {
+vi.mock('@/services/api', () => {
+  class ApiError extends Error {
     public status: number
     constructor(status: number, message: string) {
       super(message)
       this.status = status
       this.name = 'ApiError'
     }
-  },
-}))
+  }
+  return {
+    reportsApi: {
+      getRiskSummary: vi.fn(),
+    },
+    ApiError,
+    errorMessage: (err: unknown, fallback: string) =>
+      err instanceof ApiError ? err.message : fallback,
+  }
+})
 
 vi.mock('@/lib/pdf-report', () => ({
   generateRiskReportPdf: vi.fn(),

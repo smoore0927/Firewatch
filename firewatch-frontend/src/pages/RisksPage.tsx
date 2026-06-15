@@ -16,8 +16,8 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { risksApi, ApiError } from '@/services/api'
-import { CATEGORIES } from '@/lib/constants'
+import { risksApi, ApiError, errorMessage } from '@/services/api'
+import { CATEGORIES, RISK_STATUS_LABELS } from '@/lib/constants'
 import { currentScore, scoreLabel } from '@/types'
 import type { BulkRiskResult, Risk, RiskStatus } from '@/types'
 import { Badge, scoreToBadgeVariant } from '@/components/ui/badge'
@@ -55,14 +55,6 @@ function bulkBannerMessage(updated: number, failed: number): string {
   return `Updated ${updated} risk${plural}`
 }
 
-/** Display label for each status value. */
-const STATUS_LABELS: Record<RiskStatus, string> = {
-  open:        'Open',
-  in_progress: 'In Progress',
-  mitigated:   'Mitigated',
-  accepted:    'Accepted',
-  closed:      'Closed',
-}
 
 type Comparator = (a: Risk, b: Risk) => { result: number; pinToEnd: number }
 
@@ -201,7 +193,7 @@ export default function RisksPage() {
     try {
       await risksApi.exportCsv()
     } catch (err) {
-      setExportError(err instanceof ApiError ? err.message : 'Could not export, try again.')
+      setExportError(errorMessage(err, 'Could not export, try again.'))
     } finally {
       setIsExporting(false)
     }
@@ -331,7 +323,7 @@ export default function RisksPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Risk Register</h1>
           <p className="text-muted-foreground text-sm">
-            {total} risk{total !== 1 ? 's' : ''} total
+            {total} risk{total === 1 ? '' : 's'} total
           </p>
           {exportError && (
             <p className="text-destructive text-xs mt-1">{exportError}</p>
@@ -464,8 +456,8 @@ export default function RisksPage() {
             className="rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="all">All</option>
-            {(Object.keys(STATUS_LABELS) as RiskStatus[]).map((s) => (
-              <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+            {(Object.keys(RISK_STATUS_LABELS) as RiskStatus[]).map((s) => (
+              <option key={s} value={s}>{RISK_STATUS_LABELS[s]}</option>
             ))}
           </select>
 
@@ -522,7 +514,7 @@ export default function RisksPage() {
               onChange={(e) => setDueForReviewOnly(e.target.checked)}
               className="h-4 w-4 rounded border-input text-primary focus:ring-2 focus:ring-ring"
             />
-            Due for review only
+            <span>Due for review only</span>
           </label>
         </div>
       </div>
@@ -595,17 +587,17 @@ export default function RisksPage() {
                       {risk.category ?? <span className="italic">Uncategorised</span>}
                     </td>
                     <td className="px-4 py-3">
-                      {score !== null ? (
+                      {score === null ? (
+                        <span className="text-muted-foreground italic text-xs">Unscored</span>
+                      ) : (
                         <Badge variant={scoreToBadgeVariant(score)}>
                           {score} — {scoreLabel(score)}
                         </Badge>
-                      ) : (
-                        <span className="text-muted-foreground italic text-xs">Unscored</span>
                       )}
                     </td>
                     <td className="px-4 py-3">
                       <Badge variant={risk.status}>
-                        {STATUS_LABELS[risk.status]}
+                        {RISK_STATUS_LABELS[risk.status]}
                       </Badge>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground text-xs">

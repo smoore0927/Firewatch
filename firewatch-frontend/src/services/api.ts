@@ -20,6 +20,15 @@ class ApiError extends Error {
   }
 }
 
+/**
+ * Extracts a user-facing message from a caught error: the server-supplied
+ * message for an ApiError, otherwise the given fallback. Replaces the
+ * `err instanceof ApiError ? err.message : '…'` ternary repeated across the app.
+ */
+export function errorMessage(err: unknown, fallback: string): string {
+  return err instanceof ApiError ? err.message : fallback
+}
+
 let isRefreshing = false
 
 async function refreshToken(): Promise<boolean> {

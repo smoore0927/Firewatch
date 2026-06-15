@@ -10,33 +10,38 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { Risk, User } from '@/types'
 
-vi.mock('@/services/api', () => ({
-  risksApi: {
-    get: vi.fn(),
-    addResponse: vi.fn(),
-    updateResponse: vi.fn(),
-    deleteResponse: vi.fn(),
-  },
-  usersApi: {
-    listAssignable: vi.fn().mockResolvedValue([]),
-  },
-  frameworksApi: {
-    getFrameworks: vi.fn().mockResolvedValue([]),
-    getFrameworkFamilies: vi.fn().mockResolvedValue([]),
-    getFrameworkControls: vi.fn().mockResolvedValue([]),
-    getRiskControls: vi.fn().mockResolvedValue([]),
-    addRiskControl: vi.fn(),
-    deleteRiskControl: vi.fn(),
-  },
-  ApiError: class ApiError extends Error {
+vi.mock('@/services/api', () => {
+  class ApiError extends Error {
     public status: number
     constructor(status: number, message: string) {
       super(message)
       this.status = status
       this.name = 'ApiError'
     }
-  },
-}))
+  }
+  return {
+    risksApi: {
+      get: vi.fn(),
+      addResponse: vi.fn(),
+      updateResponse: vi.fn(),
+      deleteResponse: vi.fn(),
+    },
+    usersApi: {
+      listAssignable: vi.fn().mockResolvedValue([]),
+    },
+    frameworksApi: {
+      getFrameworks: vi.fn().mockResolvedValue([]),
+      getFrameworkFamilies: vi.fn().mockResolvedValue([]),
+      getFrameworkControls: vi.fn().mockResolvedValue([]),
+      getRiskControls: vi.fn().mockResolvedValue([]),
+      addRiskControl: vi.fn(),
+      deleteRiskControl: vi.fn(),
+    },
+    ApiError,
+    errorMessage: (err: unknown, fallback: string) =>
+      err instanceof ApiError ? err.message : fallback,
+  }
+})
 
 const ADMIN_USER: User = {
   id: 1,

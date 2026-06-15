@@ -99,6 +99,15 @@ class RiskService:
             )
         return risk
 
+    @staticmethod
+    def _risk_owner_blocked(risk: Risk, user: User) -> bool:
+        """True when a risk_owner is acting on a risk that isn't theirs.
+
+        risk_owners are scoped to risks assigned to them; all other roles are
+        unaffected by this check.
+        """
+        return user.role == UserRole.risk_owner and risk.owner_id != user.id
+
     def _check_edit_permission(self, risk: Risk, user: User) -> None:
         """
         Enforce edit rules by role:
@@ -112,7 +121,7 @@ class RiskService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Executive viewers have read-only access",
             )
-        if user.role == UserRole.risk_owner and risk.owner_id != user.id:
+        if self._risk_owner_blocked(risk, user):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Risk owners can only edit risks assigned to them",
@@ -166,7 +175,7 @@ class RiskService:
 
     def get_risk(self, risk_id: str, current_user: User) -> Risk:
         risk = self._get_active_risk(risk_id)
-        if current_user.role == UserRole.risk_owner and risk.owner_id != current_user.id:
+        if self._risk_owner_blocked(risk, current_user):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Risk owners can only view risks assigned to them",
