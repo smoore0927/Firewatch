@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, Check, Copy, Plus, Trash2, X } from 'lucide-react'
 import { apiKeysApi, ApiError } from '@/services/api'
+import { formatDate } from '@/lib/format'
+import { useEscapeKey } from '@/lib/useEscapeKey'
 import type { ApiKey, ApiKeyCreated, ApiKeyWithOwner } from '@/types'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -29,11 +31,6 @@ function statusOf(key: ApiKeyRow, nowMs: number): KeyStatus {
   if (key.revoked_at) return 'revoked'
   if (key.expires_at && Date.parse(key.expires_at) < nowMs) return 'expired'
   return 'active'
-}
-
-function formatDate(iso: string | null): React.ReactNode {
-  if (!iso) return <span className="text-muted-foreground">—</span>
-  return new Date(iso).toLocaleString()
 }
 
 export default function SettingsApiKeysPage() {
@@ -329,14 +326,7 @@ function CreateApiKeyDialog({ open, onClose, onCreated }: Readonly<CreateApiKeyD
     }
   }, [open])
 
-  useEffect(() => {
-    if (!open) return
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape' && !isSubmitting) onClose()
-    }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [open, isSubmitting, onClose])
+  useEscapeKey(() => { if (!isSubmitting) onClose() }, open)
 
   if (!open) return null
 
@@ -467,14 +457,7 @@ function RevealApiKeyDialog({ created, onClose }: Readonly<RevealApiKeyDialogPro
     }
   }, [isOpen])
 
-  useEffect(() => {
-    if (!isOpen) return
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-    }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [isOpen, onClose])
+  useEscapeKey(onClose, isOpen)
 
   if (!created) return null
 

@@ -12,7 +12,11 @@
 import { useEffect, useState, useMemo, useRef, SyntheticEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { risksApi, usersApi, frameworksApi, ApiError } from '@/services/api'
+import { risksApi, usersApi, frameworksApi, ApiError, errorMessage } from '@/services/api'
+import { RISK_STATUS_LABELS } from '@/lib/constants'
+import { truncate } from '@/lib/format'
+import { FIELD_LABELS, buildTimeline, buildEditHistory } from '@/lib/risk-timeline'
+import type { TimelineEntry, EditCommit } from '@/lib/risk-timeline'
 import { currentScore, scoreLabel, formatLikelihoodImpact } from '@/types'
 import type { Risk, RiskAssessment, RiskHistory, RiskResponse, RiskStatus, ResponseCreate, ResponseStatus, ResponseType, ResponseUpdate, User, Control, ControlFamily, ControlFramework, RiskControlMapping, RiskControlCreate } from '@/types'
 import { Badge, scoreToBadgeVariant } from '@/components/ui/badge'
@@ -31,13 +35,9 @@ import {
 
 // ---- Constants --------------------------------------------------------------
 
-const STATUS_LABELS: Record<RiskStatus, string> = {
-  open:        'Open',
-  in_progress: 'In Progress',
-  mitigated:   'Mitigated',
-  accepted:    'Accepted',
-  closed:      'Closed',
-}
+// Single source of truth lives in @/lib/constants; aliased locally so the many
+// in-file references (and the status select/badges) read unchanged.
+const STATUS_LABELS = RISK_STATUS_LABELS
 
 function statusVariant(val: string | null | undefined): BadgeVariant {
   if (val && Object.prototype.hasOwnProperty.call(STATUS_LABELS, val)) return val as BadgeVariant
@@ -61,128 +61,6 @@ const STATUS_COLORS: Record<RiskStatus, string> = {
 
 const LIKELIHOOD_LABELS: Record<number, string> = {
   1: 'Very Low', 2: 'Low', 3: 'Moderate', 4: 'High', 5: 'Very High',
-}
-
-// Human-readable labels for field names stored in risk_history.
-const FIELD_LABELS: Record<string, string> = {
-  title:          'Title',
-  description:    'Description',
-  threat_source:  'Threat source',
-  threat_event:   'Threat event',
-  vulnerability:  'Vulnerability',
-  affected_asset: 'Affected asset',
-  category:       'Category',
-  status:         'Status',
-  owner_id:       'Owner',
-}
-
-// ---- Timeline ---------------------------------------------------------------
-// Every visible event — score changes, status changes, and field edits — is
-// modelled as a single CommitBatch. When Postgres writes an assessment and
-// history rows in the same transaction they share an identical timestamp and
-// are merged into one entry. Assessment-only events (from the inline re-assess
-// form) become their own single-entry batch.
-//
-// This gives one unified Activity list instead of two separate visual tracks.
-
-type CommitBatch = {
-  date:         string
-  statusChange: RiskHistory | null    // status row from this commit, if any
-  otherFields:  string[]              // human-readable names of other changed fields
-  assessment:   RiskAssessment | null // score change in this commit, if any
-  prevScore:    number | null         // score before this commit (drives the arrow)
-  statusAtTime: RiskStatus            // status after all changes in this commit
-}
-
-// Only one entry kind now — everything is a batch.
-type TimelineEntry = { kind: 'batch'; date: string; batch: CommitBatch }
-
-function groupByCommit(rows: RiskHistory[]): Map<string, RiskHistory[]> {
-  // PostgreSQL's now() returns the transaction start time, so all rows written
-  // in the same db.commit() share an identical changed_at value.
-  const map = new Map<string, RiskHistory[]>()
-  for (const row of rows) {
-    let group = map.get(row.changed_at)
-    if (!group) {
-      group = []
-      map.set(row.changed_at, group)
-    }
-    group.push(row)
-  }
-  return map
-}
-
-function buildTimeline(risk: Risk): TimelineEntry[] {
-  // Index assessments by their assessed_at timestamp for O(1) merge lookup.
-  // When an assessment shares a timestamp with history rows (same db.commit),
-  // they are merged into one batch entry automatically.
-  const assessmentByDate = new Map<string, RiskAssessment>()
-  for (const a of risk.assessments) {
-    assessmentByDate.set(a.assessed_at, a)
-  }
-
-  const historyByDate = groupByCommit(risk.history)
-
-  // Union of all dates across both sources.
-  const allDates = new Set([...historyByDate.keys(), ...assessmentByDate.keys()])
-
-  // Walk oldest → newest to maintain running state.
-  const sorted = [...allDates].sort((a, b) =>
-    new Date(a).getTime() - new Date(b).getTime()
-  )
-
-  let currentStatus: RiskStatus = 'open'
-  let prevScore: number | null = null
-  const entries: TimelineEntry[] = []
-
-  for (const date of sorted) {
-    const rows       = historyByDate.get(date) ?? []
-    const assessment = assessmentByDate.get(date) ?? null
-
-    const statusRow  = rows.find((r) => r.field_changed === 'status') ?? null
-    const otherFields = rows
-      .filter((r) => r.field_changed !== 'status')
-      .map((r) => FIELD_LABELS[r.field_changed] ?? r.field_changed)
-
-    // Status after this commit: prefer the new status from this batch, else carry forward.
-    const statusAtTime: RiskStatus =
-      statusRow?.new_value && Object.prototype.hasOwnProperty.call(STATUS_LABELS, statusRow.new_value)
-        ? (statusRow.new_value as RiskStatus)
-        : currentStatus
-
-    entries.push({
-      kind: 'batch',
-      date,
-      batch: { date, statusChange: statusRow, otherFields, assessment, prevScore, statusAtTime },
-    })
-
-    // Advance running state for the next iteration.
-    if (statusRow?.new_value && Object.prototype.hasOwnProperty.call(STATUS_LABELS, statusRow.new_value)) {
-      currentStatus = statusRow.new_value as RiskStatus
-    }
-    if (assessment)           prevScore = assessment.risk_score
-  }
-
-  return entries.reverse() // newest first for display
-}
-
-// Build grouped edit history (all fields, full values) for the Edit History section.
-type EditCommit = {
-  date: string
-  changes: RiskHistory[]
-}
-
-function buildEditHistory(history: RiskHistory[]): EditCommit[] {
-  const commits: EditCommit[] = []
-  for (const [date, rows] of groupByCommit(history)) {
-    commits.push({ date, changes: rows })
-  }
-  return commits.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-}
-
-function truncate(value: string | null | undefined, max = 80): string {
-  if (!value) return ''
-  return value.length > max ? value.slice(0, max) + '...' : value
 }
 
 // ---- Sub-components ---------------------------------------------------------
@@ -729,7 +607,7 @@ function ResponseRow({
       await risksApi.updateResponse(riskId, response.id, payload)
       onEditSaved()
     } catch (err) {
-      setEditError(err instanceof ApiError ? err.message : 'Could not update this response.')
+      setEditError(errorMessage(err, 'Could not update this response.'))
     } finally {
       setIsSavingEdit(false)
     }
@@ -906,7 +784,7 @@ function ResponsePlans({
       setIsCreating(false)
       onChanged()
     } catch (err) {
-      setCreateError(err instanceof ApiError ? err.message : 'Could not add this response.')
+      setCreateError(errorMessage(err, 'Could not add this response.'))
     } finally {
       setIsSavingCreate(false)
     }
@@ -1114,6 +992,7 @@ function AddControlForm({
       if (err instanceof ApiError && err.status === 409) {
         setErrorMessage('This control is already mapped to this risk.')
       } else {
+        // Local `errorMessage` state shadows the shared helper here, so inline it.
         setErrorMessage(err instanceof ApiError ? err.message : 'Could not add this control.')
       }
     } finally {
