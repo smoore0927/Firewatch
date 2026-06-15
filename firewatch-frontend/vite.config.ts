@@ -18,10 +18,12 @@ export default defineConfig({
       output: {
         // Split the heaviest vendor libs into their own chunks so no single
         // route chunk (notably the chart-heavy dashboard) blows past the
-        // 500 kB warning threshold.
-        manualChunks: {
-          recharts: ['recharts'],
-          html2canvas: ['html2canvas'],
+        // 500 kB warning threshold. Vite 8's bundler (Rolldown) requires the
+        // function form of manualChunks — the object form is no longer accepted.
+        manualChunks: (id) => {
+          if (id.includes('node_modules/recharts')) return 'recharts'
+          if (id.includes('node_modules/html2canvas')) return 'html2canvas'
+          return undefined
         },
       },
     },
