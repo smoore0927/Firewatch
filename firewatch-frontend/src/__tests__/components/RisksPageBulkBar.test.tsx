@@ -11,26 +11,31 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import type { Risk, User } from '@/types'
 
-vi.mock('@/services/api', () => ({
-  risksApi: {
-    list: vi.fn(),
-    exportCsv: vi.fn(),
-    bulkReassign: vi.fn(),
-    bulkSetStatus: vi.fn(),
-    bulkRescore: vi.fn(),
-  },
-  usersApi: {
-    listAssignable: vi.fn(),
-  },
-  ApiError: class ApiError extends Error {
+vi.mock('@/services/api', () => {
+  class ApiError extends Error {
     public status: number
     constructor(status: number, message: string) {
       super(message)
       this.status = status
       this.name = 'ApiError'
     }
-  },
-}))
+  }
+  return {
+    risksApi: {
+      list: vi.fn(),
+      exportCsv: vi.fn(),
+      bulkReassign: vi.fn(),
+      bulkSetStatus: vi.fn(),
+      bulkRescore: vi.fn(),
+    },
+    usersApi: {
+      listAssignable: vi.fn(),
+    },
+    ApiError,
+    errorMessage: (err: unknown, fallback: string) =>
+      err instanceof ApiError ? err.message : fallback,
+  }
+})
 
 const ADMIN_USER: User = {
   id: 1,

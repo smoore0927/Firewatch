@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { ApiError, risksApi } from '@/services/api'
+import { errorMessage, risksApi } from '@/services/api'
 import type { ImportResult } from '@/types'
 import { Button } from '@/components/ui/button'
-import { Download, FileUp, X } from 'lucide-react'
+import { Modal } from '@/components/ui/modal'
+import { Download, FileUp } from 'lucide-react'
 
 interface Props {
   open: boolean
@@ -10,7 +11,7 @@ interface Props {
   onImported: () => void
 }
 
-export default function ImportRisksDialog({ open, onClose, onImported }: Props) {
+export default function ImportRisksDialog({ open, onClose, onImported }: Readonly<Props>) {
   const [file, setFile] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false)
@@ -29,25 +30,13 @@ export default function ImportRisksDialog({ open, onClose, onImported }: Props) 
     }
   }, [open])
 
-  // Close on Escape for keyboard users.
-  useEffect(() => {
-    if (!open) return
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape' && !isUploading) onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open, isUploading, onClose])
-
-  if (!open) return null
-
   async function handleDownloadTemplate() {
     setIsDownloadingTemplate(true)
     setError(null)
     try {
       await risksApi.downloadTemplate()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not download template, try again.')
+      setError(errorMessage(err, 'Could not download template, try again.'))
     } finally {
       setIsDownloadingTemplate(false)
     }
@@ -64,11 +53,7 @@ export default function ImportRisksDialog({ open, onClose, onImported }: Props) 
       // rows had errors, the `created` ones should appear immediately.
       if (res.created > 0) onImported()
     } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.message)
-      } else {
-        setError('Could not upload, try again.')
-      }
+      setError(errorMessage(err, 'Could not upload, try again.'))
     } finally {
       setIsUploading(false)
     }
@@ -86,42 +71,22 @@ export default function ImportRisksDialog({ open, onClose, onImported }: Props) 
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={() => { if (!isUploading) onClose() }}
+    <Modal
+      open={open}
+      onClose={onClose}
+      busy={isUploading}
+      title="Import risks from CSV"
+      description={
+        <>
+          Upload a CSV file with risk data. Download the template below to see the
+          expected format and column headers.
+          <span className="mt-2 block text-xs">
+            Optionally include a <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">created_at</code> column (ISO date, e.g. 2024-01-15) to preserve the original creation date of existing risks. If left blank, it defaults to the upload time.
+          </span>
+        </>
+      }
     >
-      <div
-        className="w-full max-w-lg rounded-lg border bg-background p-6 shadow-lg"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="import-dialog-title"
-      >
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 id="import-dialog-title" className="text-lg font-semibold">
-              Import risks from CSV
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Upload a CSV file with risk data. Download the template below to see the
-              expected format and column headers.
-            </p>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Optionally include a <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">created_at</code> column (ISO date, e.g. 2024-01-15) to preserve the original creation date of existing risks. If left blank, it defaults to the upload time.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isUploading}
-            className="text-muted-foreground hover:text-foreground disabled:opacity-50"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="mt-4">
+        <div>
           <Button
             type="button"
             variant="outline"
@@ -219,7 +184,6 @@ export default function ImportRisksDialog({ open, onClose, onImported }: Props) 
             </div>
           </div>
         )}
-      </div>
-    </div>
+    </Modal>
   )
 }

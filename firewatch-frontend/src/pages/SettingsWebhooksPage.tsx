@@ -14,6 +14,8 @@ import {
   Zap,
 } from 'lucide-react'
 import { webhooksApi, ApiError } from '@/services/api'
+import { formatDate, truncate } from '@/lib/format'
+import { useEscapeKey } from '@/lib/useEscapeKey'
 import type {
   WebhookDelivery,
   WebhookSubscription,
@@ -48,16 +50,6 @@ const SUBSCRIBABLE_EVENTS: { value: WebhookEventType; label: string; description
 
 const VERIFICATION_SNIPPET = `Header: X-Firewatch-Signature: sha256=<hex>
 The signature is HMAC-SHA256 over \`\${timestamp}.\${body}\` using your secret.`
-
-function formatDate(iso: string | null): React.ReactNode {
-  if (!iso) return <span className="text-muted-foreground">—</span>
-  return new Date(iso).toLocaleString()
-}
-
-function truncate(value: string, max: number): string {
-  if (value.length <= max) return value
-  return value.slice(0, max - 1) + '…'
-}
 
 type SubStatus = 'active' | 'inactive' | 'failing'
 
@@ -410,14 +402,7 @@ function CreateWebhookDialog({ open, onClose, onCreated }: Readonly<CreateWebhoo
     }
   }, [open])
 
-  useEffect(() => {
-    if (!open) return
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape' && !isSubmitting) onClose()
-    }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [open, isSubmitting, onClose])
+  useEscapeKey(() => { if (!isSubmitting) onClose() }, open)
 
   if (!open) return null
 
@@ -608,14 +593,7 @@ function EditWebhookDialog({ sub, onClose, onUpdated }: Readonly<EditWebhookDial
     }
   }, [sub])
 
-  useEffect(() => {
-    if (!isOpen) return
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape' && !isSubmitting) onClose()
-    }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [isOpen, isSubmitting, onClose])
+  useEscapeKey(() => { if (!isSubmitting) onClose() }, isOpen)
 
   if (!sub) return null
 
@@ -789,14 +767,7 @@ function RevealSecretDialog({ created, onClose }: Readonly<RevealSecretDialogPro
     }
   }, [isOpen])
 
-  useEffect(() => {
-    if (!isOpen) return
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-    }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [isOpen, onClose])
+  useEscapeKey(onClose, isOpen)
 
   if (!created) return null
 
@@ -947,14 +918,7 @@ function DeliveriesDialog({ sub, onClose }: Readonly<DeliveriesDialogProps>) {
     if (isOpen) fetchDeliveries()
   }, [isOpen, fetchDeliveries])
 
-  useEffect(() => {
-    if (!isOpen) return
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-    }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [isOpen, onClose])
+  useEscapeKey(onClose, isOpen)
 
   if (!sub) return null
 
