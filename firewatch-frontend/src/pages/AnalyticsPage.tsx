@@ -7,10 +7,11 @@ import type {
   VelocityMTTMResponse,
   VelocityThroughputResponse,
 } from '@/types'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { DateRangePicker, type RangePreset } from '@/components/DateRangePicker'
 import { CATEGORIES } from '@/lib/constants'
+import { toLocalISODate } from '@/lib/dates'
 
 const SEVERITY_COLORS: Record<Severity, string> = {
   low: '#22c55e',
@@ -29,12 +30,8 @@ const SEVERITY_LABELS: Record<Severity, string> = {
 // Ordered high-to-low so the breakdown reads worst-first.
 const SEVERITY_KEYS: Severity[] = ['critical', 'high', 'medium', 'low']
 
-function toDateStr(d: Date): string {
-  return d.toISOString().split('T')[0]
-}
-
-function fmt(value: number | null): string {
-  return value === null ? '—' : String(value)
+function fmt(value: number | null, unit = ''): string {
+  return value === null ? '—' : `${value}${unit}`
 }
 
 export default function AnalyticsPage() {
@@ -42,8 +39,8 @@ export default function AnalyticsPage() {
   const ninetyDaysAgo = new Date(today)
   ninetyDaysAgo.setDate(today.getDate() - 90)
 
-  const [startDate, setStartDate] = useState(toDateStr(ninetyDaysAgo))
-  const [endDate, setEndDate] = useState(toDateStr(today))
+  const [startDate, setStartDate] = useState(toLocalISODate(ninetyDaysAgo))
+  const [endDate, setEndDate] = useState(toLocalISODate(today))
   const [range, setRange] = useState<RangePreset>('90d')
   const [severity, setSeverity] = useState<Severity | ''>('')
   const [category, setCategory] = useState<string>('')
@@ -105,7 +102,7 @@ export default function AnalyticsPage() {
         </div>
         <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-2">
-            <Label htmlFor="severity-filter" className="text-xs whitespace-nowrap">Severity</Label>
+            <Label htmlFor="severity-filter" className="text-xs whitespace-nowrap">Inherent severity</Label>
             <select
               id="severity-filter"
               value={severity}
@@ -178,7 +175,7 @@ export default function AnalyticsPage() {
                     : `${residual.avg_percentage}%`}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {fmt(residual?.avg_absolute ?? null)} avg score reduction • {residual?.count ?? 0} risks
+                  {fmt(residual?.avg_absolute ?? null, ' pts')} avg score reduction • {residual?.count ?? 0} risks
                 </p>
               </CardContent>
             </Card>
@@ -188,8 +185,8 @@ export default function AnalyticsPage() {
                 <CardTitle className="text-sm font-medium">Throughput in window</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold">{openedSum}</p>
-                <p className="text-xs text-muted-foreground mt-1">{openedSum} opened • {closedSum} closed</p>
+                <p className="text-3xl font-bold">{closedSum}</p>
+                <p className="text-xs text-muted-foreground mt-1">risks closed • {openedSum} opened</p>
               </CardContent>
             </Card>
           </div>
@@ -222,7 +219,11 @@ export default function AnalyticsPage() {
           {severity === '' && (
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">By Severity</CardTitle>
+                <CardTitle className="text-sm font-medium">By Inherent Severity</CardTitle>
+                <CardDescription>
+                  Grouped by each risk&apos;s score before mitigation, so a risk brought down
+                  from Critical still counts as Critical here.
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -264,7 +265,7 @@ export default function AnalyticsPage() {
                             {SEVERITY_LABELS[key]}
                           </span>
                           <span className="font-medium">
-                            {fmt(residual?.by_severity[key] ?? null)}
+                            {fmt(residual?.by_severity[key] ?? null, ' pts')}
                           </span>
                         </div>
                       ))}

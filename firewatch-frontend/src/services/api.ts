@@ -11,6 +11,8 @@
  * VITE_API_BASE_URL in your environment.
  */
 
+import { todayLocalISODate } from '@/lib/dates'
+
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 
 class ApiError extends Error {
@@ -206,17 +208,54 @@ async function throwFromResponse(res: Response): Promise<never> {
   throw new ApiError(res.status, detail)
 }
 
+type RiskListParams = {
+  status?: string
+  category?: string
+  owner_id?: number
+  due_for_review?: boolean
+  skip?: number
+  limit?: number
+}
+
+function listRisks(params?: RiskListParams) {
+  const qs = new URLSearchParams()
+  if (params?.status) qs.set('status', params.status)
+  if (params?.category) qs.set('category', params.category)
+  if (params?.owner_id) qs.set('owner_id', String(params.owner_id))
+  if (params?.due_for_review) qs.set('due_for_review', 'true')
+  if (params?.skip !== undefined) qs.set('skip', String(params.skip))
+  if (params?.limit !== undefined) qs.set('limit', String(params.limit))
+  const query = qs.toString() ? `?${qs.toString()}` : ''
+  return request<RiskListResponse>(`/api/risks${query}`)
+}
+
+// The list endpoint's maximum page size.
+const RISK_PAGE_SIZE = 200
+
 export const risksApi = {
-  list: (params?: { status?: string; category?: string; owner_id?: number; due_for_review?: boolean; skip?: number; limit?: number }) => {
-    const qs = new URLSearchParams()
-    if (params?.status) qs.set('status', params.status)
-    if (params?.category) qs.set('category', params.category)
-    if (params?.owner_id) qs.set('owner_id', String(params.owner_id))
-    if (params?.due_for_review) qs.set('due_for_review', 'true')
-    if (params?.skip !== undefined) qs.set('skip', String(params.skip))
-    if (params?.limit !== undefined) qs.set('limit', String(params.limit))
-    const query = qs.toString() ? `?${qs.toString()}` : ''
-    return request<RiskListResponse>(`/api/risks${query}`)
+  /** One page of risks — 50 by default. Use listAll when you need every risk. */
+  list: listRisks,
+
+  /**
+   * Every risk matching `params`, fetched page by page. A single list() call
+   * returns at most one page, which silently drops the rest of a larger register.
+   */
+  listAll: async (params?: Omit<RiskListParams, 'skip' | 'limit'>): Promise<RiskListResponse> => {
+    const items: Risk[] = []
+    const seen = new Set<number>()
+    for (let skip = 0; ; skip += RISK_PAGE_SIZE) {
+      const page = await listRisks({ ...params, skip, limit: RISK_PAGE_SIZE })
+      // A risk created mid-fetch shifts later pages by one; skip the repeat.
+      for (const risk of page.items) {
+        if (!seen.has(risk.id)) {
+          seen.add(risk.id)
+          items.push(risk)
+        }
+      }
+      if (page.items.length < RISK_PAGE_SIZE || skip + RISK_PAGE_SIZE >= page.total) {
+        return { total: page.total, items }
+      }
+    }
   },
 
   get: (riskId: string) => request<Risk>(`/api/risks/${riskId}`),
@@ -251,10 +290,9 @@ export const risksApi = {
     const res = await rawFetchWithRetry('/api/risks/export', { method: 'GET' })
     if (!res.ok) await throwFromResponse(res)
     const blob = await res.blob()
-    const today = new Date().toISOString().split('T')[0]
     const filename =
       parseContentDispositionFilename(res.headers.get('Content-Disposition')) ??
-      `firewatch-risks-${today}.csv`
+      `firewatch-risks-${todayLocalISODate()}.csv`
     triggerDownload(blob, filename)
   },
 

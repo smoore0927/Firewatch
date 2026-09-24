@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { AlertTriangle, ChevronRight, Download, X } from 'lucide-react'
-import { dashboardApi, risksApi, ApiError } from '@/services/api'
+import { dashboardApi, risksApi, ApiError, errorMessage } from '@/services/api'
 import { currentScore, scoreLabel } from '@/types'
-import type { ActionQueueResponse, DashboardSummary, Risk, ScoreTotalsBySeverityResponse, Severity } from '@/types'
+import type { ActionQueueResponse, DashboardSummary, Risk, ScoreTotalsBySeverityResponse, Severity, SeverityLabel } from '@/types'
 import { Badge, scoreToBadgeVariant } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
 import ExportReportDialog from '@/components/dashboard/ExportReportDialog'
 import { DateRangePicker, type RangePreset } from '@/components/DateRangePicker'
+import { toLocalISODate } from '@/lib/dates'
 
 const SEVERITY_COLORS: Record<Severity, string> = {
   low: '#22c55e',
@@ -30,18 +31,15 @@ const SEVERITY_LABELS: Record<Severity, string> = {
 
 const SEVERITY_KEYS: Severity[] = ['low', 'medium', 'high', 'critical']
 
-function toDateStr(d: Date): string {
-  const year = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
+const CELL_COLORS: Record<SeverityLabel, string> = {
+  Low:      'bg-green-500 text-white',
+  Medium:   'bg-yellow-400 text-gray-900',
+  High:     'bg-orange-400 text-white',
+  Critical: 'bg-red-500 text-white',
 }
 
 function cellColor(score: number): string {
-  if (score > 20) return 'bg-red-500 text-white'
-  if (score > 12) return 'bg-orange-400 text-white'
-  if (score > 5)  return 'bg-yellow-400 text-gray-900'
-  return 'bg-green-500 text-white'
+  return CELL_COLORS[scoreLabel(score)]
 }
 
 function effectiveLI(risk: Risk): { likelihood: number; impact: number } | null {
@@ -63,13 +61,17 @@ export default function DashboardPage() {
   const hasOverdue = (actionQueue?.items.length ?? 0) > 0
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Per-panel load failures, shown in place instead of an empty panel.
+  const [totalsError, setTotalsError] = useState<string | null>(null)
+  const [actionQueueError, setActionQueueError] = useState<string | null>(null)
+  const [risksError, setRisksError] = useState<string | null>(null)
 
   const today = new Date()
   const ninetyDaysAgo = new Date(today)
   ninetyDaysAgo.setDate(today.getDate() - 90)
 
-  const [startDate, setStartDate] = useState(toDateStr(ninetyDaysAgo))
-  const [endDate, setEndDate] = useState(toDateStr(today))
+  const [startDate, setStartDate] = useState(toLocalISODate(ninetyDaysAgo))
+  const [endDate, setEndDate] = useState(toLocalISODate(today))
   const [range, setRange] = useState<RangePreset>('90d')
   const [totals, setTotals] = useState<ScoreTotalsBySeverityResponse | null>(null)
   const [visible, setVisible] = useState<Record<Severity, boolean>>({
@@ -100,16 +102,24 @@ export default function DashboardPage() {
 
   useEffect(() => {
     dashboardApi.getScoreTotalsBySeverity(startDate, endDate)
-      .then(setTotals)
-      .catch(() => {})
+      .then((data) => {
+        setTotals(data)
+        setTotalsError(null)
+      })
+      .catch((err) => setTotalsError(errorMessage(err, 'Could not load the score trend.')))
   }, [startDate, endDate])
 
   useEffect(() => {
-    dashboardApi.getActionQueue(1).then(setActionQueue).catch(() => {})
+    dashboardApi.getActionQueue(1)
+      .then(setActionQueue)
+      .catch((err) => setActionQueueError(errorMessage(err, 'Could not load overdue items.')))
   }, [])
 
+  // Every page: the heatmap must count the whole register, not the first 50.
   useEffect(() => {
-    risksApi.list().then((data) => setRisks(data.items)).catch(() => {})
+    risksApi.listAll()
+      .then((data) => setRisks(data.items))
+      .catch((err) => setRisksError(errorMessage(err, 'Could not load risks for the heatmap.')))
   }, [])
 
   const matrixCounts = useMemo(() => {
@@ -185,7 +195,10 @@ export default function DashboardPage() {
               {hasOverdue && <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />}
               <span className="text-sm font-medium">Overdue Items</span>
               <span className="text-sm text-muted-foreground">·</span>
-              {actionQueue === null && (
+              {actionQueue === null && actionQueueError && (
+                <span className="text-sm text-destructive">{actionQueueError}</span>
+              )}
+              {actionQueue === null && !actionQueueError && (
                 <span className="text-sm text-muted-foreground">Loading…</span>
               )}
               {actionQueue !== null && actionQueue.total === 0 && (
@@ -210,7 +223,7 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <p className="text-3xl font-bold">{summary.total}</p>
-                <CardDescription>Active risks</CardDescription>
+                <CardDescription>All statuses</CardDescription>
               </CardContent>
             </Card>
 
@@ -268,6 +281,7 @@ export default function DashboardPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
+                {risksError && <p className="text-sm text-destructive mb-2">{risksError}</p>}
                 <div ref={matrixRef} className="flex gap-3 items-start bg-background p-2">
                   {/* Y-axis label */}
                   <div className="flex items-center justify-center self-stretch">
@@ -371,7 +385,10 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent className="flex-1 min-h-0">
-              {totals && totals.points.length > 0 ? (
+              {totalsError && (
+                <p className="text-sm text-destructive text-center py-12">{totalsError}</p>
+              )}
+              {!totalsError && (totals && totals.points.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={totals.points} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
@@ -399,7 +416,7 @@ export default function DashboardPage() {
                 <p className="text-sm text-muted-foreground text-center py-12">
                   No assessments recorded in this date range.
                 </p>
-              )}
+              ))}
             </CardContent>
           </Card>
           </div>

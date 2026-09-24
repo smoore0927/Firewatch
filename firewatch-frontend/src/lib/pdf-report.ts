@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf'
 import { autoTable } from 'jspdf-autotable'
 import html2canvas from 'html2canvas'
 import type { RiskReport, RiskSeverity } from '@/types'
+import { todayLocalISODate } from '@/lib/dates'
 
 const PAGE_WIDTH_MM = 210
 const PAGE_HEIGHT_MM = 297
@@ -20,10 +21,6 @@ function formatDateTime(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
   return `${d.toLocaleDateString()} ${d.toLocaleTimeString()}`
-}
-
-function todayDateStr(): string {
-  return new Date().toISOString().split('T')[0]
 }
 
 async function captureElement(
@@ -246,5 +243,5 @@ export async function generateRiskReportPdf(
   }
 
   drawFooter(doc)
-  triggerPdfDownload(doc, `firewatch-risk-report-${todayDateStr()}.pdf`)
+  triggerPdfDownload(doc, `firewatch-risk-report-${todayLocalISODate()}.pdf`)
 }
