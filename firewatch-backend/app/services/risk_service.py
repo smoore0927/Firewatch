@@ -15,15 +15,21 @@ Pattern:
 
 import enum
 from datetime import date, datetime, timedelta, timezone
-from typing import Callable
+from typing import Callable, Literal
 
 from fastapi import HTTPException, status
+from sqlalchemy import String, case, cast, func
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models.risk import Risk, RiskAssessment, RiskHistory, RiskResponse, ResponseStatus, RiskStatus
 from app.models.user import User, UserRole
+from app.core.severity import Severity, severity_clause
 from app.schemas.risk import AssessmentCreate, ResponseCreate, ResponseUpdate, RiskCreate, RiskUpdate
 from app.services import events
+from app.services.assessment_queries import with_current_score
+
+SortKey = Literal["id", "title", "category", "score", "status", "owner", "next_review"]
+SortOrder = Literal["asc", "desc"]
 
 
 # Fields whose changes are surfaced as risk.changed notifications.
@@ -138,6 +144,10 @@ class RiskService:
         category: str | None = None,
         owner_id: int | None = None,
         due_for_review: bool | None = None,
+        search: str | None = None,
+        severity: Severity | Literal["unscored"] | None = None,
+        sort: SortKey | None = None,
+        order: SortOrder = "asc",
         skip: int = 0,
         limit: int = 50,
     ) -> dict:
@@ -158,12 +168,39 @@ class RiskService:
             query = query.filter(Risk.next_review_date <= date.today())
             query = query.filter(Risk.status.notin_([RiskStatus.closed, RiskStatus.mitigated]))
 
+        # owner_id is a not-null FK, so joining User stays one row per risk.
+        search = (search or "").strip()
+        if search or sort == "owner":
+            query = query.join(User, User.id == Risk.owner_id)
+
+        if search:
+            query = query.filter(
+                Risk.risk_id.icontains(search, autoescape=True)
+                | Risk.title.icontains(search, autoescape=True)
+                | Risk.description.icontains(search, autoescape=True)
+                | Risk.threat_source.icontains(search, autoescape=True)
+                | Risk.threat_event.icontains(search, autoescape=True)
+                | Risk.vulnerability.icontains(search, autoescape=True)
+                | Risk.affected_asset.icontains(search, autoescape=True)
+                | Risk.category.icontains(search, autoescape=True)
+                | User.full_name.icontains(search, autoescape=True)
+                | User.email.icontains(search, autoescape=True)
+            )
+
+        # latest_assessment_ids is one row per risk, so this join is also safe for total.
+        current_score_expr = None
+        if severity is not None or sort == "score":
+            query, current_score_expr = with_current_score(query, self.db)
+
+        if severity is not None:
+            if severity == "unscored":
+                query = query.filter(current_score_expr.is_(None))
+            else:
+                query = query.filter(severity_clause(current_score_expr, severity))
+
         total = query.count()
         items = (
-            # Tiebreak on id: SQLite timestamps have 1-second resolution and a CSV
-            # import creates many risks in the same second. Without a total order,
-            # skip/limit paging can repeat some risks and skip others.
-            query.order_by(Risk.created_at.desc(), Risk.id.desc())
+            query.order_by(*self._risk_order_by(sort, order, current_score_expr))
             .options(
                 joinedload(Risk.owner),
                 selectinload(Risk.assessments),
@@ -175,6 +212,55 @@ class RiskService:
             .all()
         )
         return {"total": total, "items": items}
+
+    @staticmethod
+    def _risk_order_by(sort: SortKey | None, order: SortOrder, current_score_expr) -> list:
+        """Build the ORDER BY clause list. Always ends with Risk.id.desc() so
+        skip/limit paging is stable (SQLite timestamps have 1-second resolution
+        and a CSV import creates many risks in the same second).
+        """
+        tiebreak = Risk.id.desc()
+        if sort is None:
+            return [Risk.created_at.desc(), Risk.id.desc()]
+
+        def d(expr):
+            return expr.desc() if order == "desc" else expr.asc()
+
+        if sort == "id":
+            return [d(Risk.id), tiebreak]
+        if sort == "title":
+            return [d(func.lower(Risk.title)), tiebreak]
+        if sort == "category":
+            # NULL/empty category always sorts last, in both directions.
+            is_empty = case((Risk.category.is_(None), 1), (Risk.category == "", 1), else_=0)
+            return [is_empty.asc(), d(func.lower(Risk.category)), tiebreak]
+        if sort == "score":
+            # Unscored risks are treated as the lowest score (matches the current UI).
+            return [d(func.coalesce(current_score_expr, -1)), tiebreak]
+        if sort == "status":
+            # Cast to text so SQLite and Postgres agree; Postgres native enums
+            # would otherwise sort by declaration order.
+            return [d(cast(Risk.status, String)), tiebreak]
+        if sort == "owner":
+            return [d(func.lower(func.coalesce(User.full_name, User.email))), tiebreak]
+        if sort == "next_review":
+            # NULL next_review_date always sorts last, in both directions.
+            is_empty = case((Risk.next_review_date.is_(None), 1), else_=0)
+            return [is_empty.asc(), d(Risk.next_review_date), tiebreak]
+        raise AssertionError(f"unhandled sort key: {sort}")
+
+    def list_owners(self, current_user: User) -> list[User]:
+        """Distinct owners of non-deleted risks visible to `current_user`."""
+        owner_ids = self.db.query(Risk.owner_id).filter(Risk.deleted_at.is_(None))
+        if current_user.role == UserRole.risk_owner:
+            owner_ids = owner_ids.filter(Risk.owner_id == current_user.id)
+        owner_ids = owner_ids.distinct().subquery()
+        return (
+            self.db.query(User)
+            .join(owner_ids, owner_ids.c.owner_id == User.id)
+            .order_by(func.lower(func.coalesce(User.full_name, User.email)))
+            .all()
+        )
 
     def get_risk(self, risk_id: str, current_user: User) -> Risk:
         risk = self._get_active_risk(risk_id)

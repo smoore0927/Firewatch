@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Query, Session
 
-from app.models.risk import RiskAssessment
+from app.models.risk import Risk, RiskAssessment
 
 
 def latest_assessment_ids(db: Session):
@@ -32,3 +32,19 @@ def latest_assessment_ids(db: Session):
         .filter(ranked.c.rn == 1)
         .subquery()
     )
+
+
+def with_current_score(query: Query, db: Session):
+    """Outer-join `query` to each risk's latest assessment, returning (query, current_score_expr).
+
+    current_score_expr matches app.core.severity.current_score exactly: the
+    residual score when set, else the inherent score, else NULL (unscored).
+    """
+    latest = latest_assessment_ids(db)
+    query = query.outerjoin(latest, latest.c.risk_id == Risk.id).outerjoin(
+        RiskAssessment, RiskAssessment.id == latest.c.assessment_id
+    )
+    current_score_expr = func.coalesce(
+        RiskAssessment.residual_risk_score, RiskAssessment.risk_score
+    )
+    return query, current_score_expr
