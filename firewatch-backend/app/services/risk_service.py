@@ -160,7 +160,10 @@ class RiskService:
 
         total = query.count()
         items = (
-            query.order_by(Risk.created_at.desc())
+            # Tiebreak on id: SQLite timestamps have 1-second resolution and a CSV
+            # import creates many risks in the same second. Without a total order,
+            # skip/limit paging can repeat some risks and skip others.
+            query.order_by(Risk.created_at.desc(), Risk.id.desc())
             .options(
                 joinedload(Risk.owner),
                 selectinload(Risk.assessments),

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from app.models.audit_log import AuditLog
 from app.models.risk import Risk, RiskAssessment, RiskStatus
@@ -256,6 +256,80 @@ def test_executive_viewer_sees_all_risks_in_report(
     assert resp.status_code == 200
     titles = {r["title"] for r in resp.json()["risks"]}
     assert {"OwnedByA", "OwnedByB"}.issubset(titles)
+
+
+def _report_around_today(client) -> dict:
+    """Fetch the report for a window that surely contains today's assessments."""
+    today = date.today()
+    resp = client.get(
+        "/api/reports/risk-summary",
+        params={
+            "start": (today - timedelta(days=1)).isoformat(),
+            "end": (today + timedelta(days=1)).isoformat(),
+            "include_risks": "true",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def test_risk_owner_report_aggregates_cover_only_their_risks(
+    client, owner_user, owner_user_b, login_as, db
+):
+    _seed_risk(db, owner=owner_user, title="Mine", score=9)
+    _seed_risk(db, owner=owner_user_b, title="Theirs", score=16)
+    _seed_risk(db, owner=owner_user_b, title="Theirs unscored", score=None)
+
+    login_as(owner_user)
+    body = _report_around_today(client)
+
+    summary = body["summary"]
+    assert summary["total"] == 1
+    assert summary["by_status"]["open"] == 1
+    assert summary["by_severity"] == {
+        "Critical": 0, "High": 0, "Medium": 1, "Low": 0, "Unscored": 0,
+    }
+    assert sum(map(sum, summary["risk_matrix"])) == 1
+    assert sum(p["count"] for p in body["score_history"]["points"]) == 1
+
+
+def test_admin_report_aggregates_cover_every_risk(
+    client, admin_user, owner_user, owner_user_b, login_as, db
+):
+    _seed_risk(db, owner=owner_user, title="Mine", score=9)
+    _seed_risk(db, owner=owner_user_b, title="Theirs", score=16)
+    _seed_risk(db, owner=owner_user_b, title="Theirs unscored", score=None)
+
+    login_as(admin_user)
+    body = _report_around_today(client)
+
+    assert body["summary"]["total"] == 3
+    assert sum(p["count"] for p in body["score_history"]["points"]) == 2
+
+
+def test_report_rows_use_the_current_residual_score(
+    client, admin_user, login_as, db
+):
+    """The report's "current" score must match the register: residual when assessed."""
+    risk = _seed_risk(db, owner=admin_user, title="Brought down", score=25)
+    db.add(RiskAssessment(
+        risk_id=risk.id,
+        likelihood=5,
+        impact=5,
+        risk_score=25,
+        residual_likelihood=1,
+        residual_impact=2,
+        residual_risk_score=2,
+        assessed_by_id=admin_user.id,
+    ))
+    db.commit()
+
+    login_as(admin_user)
+    row = _report_around_today(client)["risks"][0]
+
+    assert row["current_score"] == 2
+    assert (row["current_likelihood"], row["current_impact"]) == (1, 2)
+    assert row["severity"] == "Low"
 
 
 # --- Audit logging ------------------------------------------------------------

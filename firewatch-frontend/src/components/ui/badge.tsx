@@ -6,6 +6,7 @@
  */
 import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@/lib/utils'
+import { scoreLabel, type SeverityLabel } from '@/types'
 
 const badgeVariants = cva(
   // Base styles shared across all variants
@@ -44,14 +45,18 @@ export function Badge({ className, variant, ...props }: BadgeProps) {
   return <span className={cn(badgeVariants({ variant }), className)} {...props} />
 }
 
+const SEVERITY_VARIANTS: Record<SeverityLabel, BadgeVariant> = {
+  Low: 'low',
+  Medium: 'medium',
+  High: 'high',
+  Critical: 'critical',
+}
+
 /**
  * Map a numeric risk score (1-25) to the matching Badge variant.
  * Import and use alongside <Badge>:
  *   <Badge variant={scoreToBadgeVariant(score)}>{scoreLabel(score)}</Badge>
  */
 export function scoreToBadgeVariant(score: number): BadgeVariant {
-  if (score <= 5)  return 'low'
-  if (score <= 12) return 'medium'
-  if (score <= 20) return 'high'
-  return 'critical'
+  return SEVERITY_VARIANTS[scoreLabel(score)]
 }

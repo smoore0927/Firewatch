@@ -62,7 +62,7 @@ vi.mock('@/context/AuthContext', () => ({
   useAuth: () => ({ user: mockUser, isLoading: false }),
 }))
 
-import { risksApi } from '@/services/api'
+import { ApiError, risksApi } from '@/services/api'
 import RiskDetailPage from '@/pages/RiskDetailPage'
 
 const mockedGet = risksApi.get as unknown as ReturnType<typeof vi.fn>
@@ -92,6 +92,8 @@ function makeRisk(): Risk {
         assessed_by: { id: 1, email: 'a@b.com', full_name: 'Owner', role: 'admin' },
       },
     ],
+    current_score: 9,
+    severity: 'medium',
     responses: [
       {
         id: 42,
@@ -201,5 +203,39 @@ describe('RiskDetailPage — Response Plans', () => {
 
     await waitFor(() => expect(mockedUpdate).toHaveBeenCalledTimes(1))
     expect(mockedUpdate).toHaveBeenCalledWith('RISK-001', 42, { status: 'completed' })
+  })
+
+  it('shows the target date on its calendar day', async () => {
+    // The API sends response dates as UTC midnight ("2026-12-01T00:00:00Z"),
+    // which a plain new Date() would render as Nov 30 west of Greenwich.
+    renderPage()
+    expect(
+      await screen.findByText(`Target: ${new Date(2026, 11, 1).toLocaleDateString()}`),
+    ).toBeInTheDocument()
+  })
+
+  it('shows the error when a status quick-change is rejected', async () => {
+    mockedUpdate.mockRejectedValueOnce(new ApiError(403, 'You can only edit risks you own.'))
+    renderPage()
+    await waitFor(() => expect(screen.getByText('Apply patches')).toBeInTheDocument())
+
+    await userEvent.selectOptions(
+      screen.getByLabelText(/change response status for response 42/i),
+      'completed',
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('You can only edit risks you own.')
+  })
+
+  it('keeps the delete confirm open and shows the error when delete fails', async () => {
+    mockedDelete.mockRejectedValueOnce(new ApiError(500, 'Database unavailable'))
+    renderPage()
+    await waitFor(() => expect(screen.getByText('Apply patches')).toBeInTheDocument())
+
+    await userEvent.click(screen.getByRole('button', { name: /delete response 42/i }))
+    await userEvent.click(screen.getByRole('button', { name: /yes, delete/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Database unavailable')
+    expect(screen.getByRole('button', { name: /yes, delete/i })).toBeInTheDocument()
   })
 })

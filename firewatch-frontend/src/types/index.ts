@@ -151,15 +151,35 @@ export type RiskSeverity = components['schemas']['RiskReportRow']['severity']
 // Helpers
 // -------------------------------------------------------------------------
 
-/** Returns the current risk score from the latest assessment, or null. */
+/**
+ * The risk's current score — residual when assessed, else inherent — or null
+ * while unscored. Computed by the API so every screen and export agrees.
+ */
 export function currentScore(risk: Risk): number | null {
-  const a = risk.assessments[0]
-  if (!a) return null
-  return a.residual_risk_score ?? a.risk_score
+  return risk.current_score ?? null
 }
 
-/** Maps a risk score (1-25) to a severity label. */
-export function scoreLabel(score: number): 'Low' | 'Medium' | 'High' | 'Critical' {
+export type SeverityLabel = 'Low' | 'Medium' | 'High' | 'Critical'
+
+const SEVERITY_LABELS: Record<Severity, SeverityLabel> = {
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  critical: 'Critical',
+}
+
+/** Display label of the risk's API-computed severity, or null while unscored. */
+export function severityLabel(risk: Risk): SeverityLabel | null {
+  return risk.severity ? SEVERITY_LABELS[risk.severity] : null
+}
+
+/**
+ * Maps any 1-25 score to its severity label — for scores that aren't a risk's
+ * own (heatmap cells, score previews). Mirrors the backend cut-offs in
+ * app/core/severity.py; keep the two in step. The only threshold copy on the
+ * frontend: badge variants and heatmap colours derive from it.
+ */
+export function scoreLabel(score: number): SeverityLabel {
   if (score <= 5) return 'Low'
   if (score <= 12) return 'Medium'
   if (score <= 20) return 'High'

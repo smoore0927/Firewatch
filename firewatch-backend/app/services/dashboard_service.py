@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
+from app.core.severity import current_likelihood_impact, current_score, severity_for_score
 from app.models.risk import Risk, RiskAssessment, RiskHistory, RiskResponse, RiskStatus, ResponseStatus
 
 _TERMINAL_STATUSES = {RiskStatus.mitigated, RiskStatus.accepted, RiskStatus.closed}
@@ -21,6 +22,10 @@ from app.schemas.dashboard import (
     ScoreTotalsBySeverityPoint,
     ScoreTotalsBySeverityResponse,
 )
+from app.services.assessment_queries import latest_assessment_ids
+
+# Display labels used as the summary's by_severity keys.
+_SEVERITY_LABELS = {"low": "Low", "medium": "Medium", "high": "High", "critical": "Critical"}
 
 
 def _resolve_tz(tz: str | None) -> tzinfo:
@@ -60,31 +65,15 @@ def build_summary(
     for status, count in status_rows:
         by_status[status.value] = count
 
-    latest_assessed_at = (
-        db.query(
-            RiskAssessment.risk_id,
-            func.max(RiskAssessment.assessed_at).label("latest"),
-        )
-        .group_by(RiskAssessment.risk_id)
-        .subquery()
-    )
-    matrix_q = (
-        db.query(
-            RiskAssessment.likelihood,
-            RiskAssessment.impact,
-            func.count(Risk.id).label("cnt"),
-        )
-        .join(
-            latest_assessed_at,
-            (RiskAssessment.risk_id == latest_assessed_at.c.risk_id)
-            & (RiskAssessment.assessed_at == latest_assessed_at.c.latest),
-        )
+    latest = latest_assessment_ids(db)
+    latest_q = (
+        db.query(RiskAssessment)
+        .join(latest, RiskAssessment.id == latest.c.assessment_id)
         .join(Risk, Risk.id == RiskAssessment.risk_id)
         .filter(Risk.deleted_at.is_(None))
     )
     if scope_owner_id is not None:
-        matrix_q = matrix_q.filter(Risk.owner_id == scope_owner_id)
-    matrix_rows = matrix_q.group_by(RiskAssessment.likelihood, RiskAssessment.impact).all()
+        latest_q = latest_q.filter(Risk.owner_id == scope_owner_id)
     by_severity: dict[str, int] = {
         "Critical": 0,
         "High": 0,
@@ -94,17 +83,12 @@ def build_summary(
     }
     risk_matrix: list[list[int]] = [[0] * 5 for _ in range(5)]
 
-    for likelihood, impact, count in matrix_rows:
-        risk_matrix[likelihood - 1][impact - 1] = count
-        score = likelihood * impact
-        if score <= 5:
-            by_severity["Low"] += count
-        elif score <= 12:
-            by_severity["Medium"] += count
-        elif score <= 20:
-            by_severity["High"] += count
-        else:
-            by_severity["Critical"] += count
+    # Current score (residual when assessed), the same basis as the register
+    # and the heatmap — see app/core/severity.py.
+    for assessment in latest_q.all():
+        likelihood, impact = current_likelihood_impact(assessment)
+        risk_matrix[likelihood - 1][impact - 1] += 1
+        by_severity[_SEVERITY_LABELS[severity_for_score(current_score(assessment))]] += 1
 
     if scope_owner_id is not None:
         scored_risk_ids = (
@@ -305,7 +289,7 @@ def build_score_totals_by_severity(
     current = start
     while current <= end:
         end_of_day = datetime.combine(current, time.max, tzinfo=user_tz).astimezone(timezone.utc)
-        low = medium = high = critical = 0
+        totals = {"low": 0, "medium": 0, "high": 0, "critical": 0}
         for rid, events in assessments_by_risk.items():
             # Skip risks that were in a terminal status as of this day.
             status_value = _status_at(rid, end_of_day)
@@ -320,23 +304,8 @@ def build_score_totals_by_severity(
             if idx < 0:
                 continue
             score = events[idx][1]
-            if score <= 5:
-                low += score
-            elif score <= 12:
-                medium += score
-            elif score <= 20:
-                high += score
-            else:
-                critical += score
-        points.append(
-            ScoreTotalsBySeverityPoint(
-                date=current.isoformat(),
-                low=low,
-                medium=medium,
-                high=high,
-                critical=critical,
-            )
-        )
+            totals[severity_for_score(score)] += score
+        points.append(ScoreTotalsBySeverityPoint(date=current.isoformat(), **totals))
         current += timedelta(days=1)
 
     return ScoreTotalsBySeverityResponse(points=points)

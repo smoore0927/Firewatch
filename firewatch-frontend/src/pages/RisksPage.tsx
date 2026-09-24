@@ -2,7 +2,7 @@
  * Risk list page — the primary working view of the app.
  *
  * Features:
- *   - Fetches all risks from GET /api/risks on mount
+ *   - Fetches every risk on mount, paging through GET /api/risks (risksApi.listAll)
  *   - Client-side filter by status
  *   - Client-side sort by title, score, or status (toggle asc/desc)
  *   - Score badge colour-coded by severity (Low/Medium/High/Critical)
@@ -18,8 +18,9 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { risksApi, ApiError, errorMessage } from '@/services/api'
 import { CATEGORIES, RISK_STATUS_LABELS } from '@/lib/constants'
-import { currentScore, scoreLabel } from '@/types'
+import { currentScore, scoreLabel, severityLabel } from '@/types'
 import type { BulkRiskResult, Risk, RiskStatus } from '@/types'
+import { calendarDay, formatCalendarDate, todayLocalISODate } from '@/lib/dates'
 import { Badge, scoreToBadgeVariant } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -42,9 +43,7 @@ function ownerLabel(risk: Risk): string {
 }
 
 function severityBucket(risk: Risk): Exclude<SeverityBucket, 'all'> {
-  const s = currentScore(risk)
-  if (s === null) return 'Unscored'
-  return scoreLabel(s)
+  return severityLabel(risk) ?? 'Unscored'
 }
 
 // ---- Helpers ----------------------------------------------------------------
@@ -135,7 +134,7 @@ export default function RisksPage() {
 
   const loadRisks = useCallback(() => {
     setIsLoading(true)
-    risksApi.list(dueForReviewOnly ? { due_for_review: true } : undefined)
+    risksApi.listAll(dueForReviewOnly ? { due_for_review: true } : undefined)
       .then((data) => {
         setRisks(data.items)
         setTotal(data.total)
@@ -648,12 +647,11 @@ function ReviewDateCell({
   if (!nextReviewDate) {
     return <span className="text-muted-foreground italic text-xs">—</span>
   }
-  const today = new Date().toISOString().split('T')[0]
   const isOverdue =
-    nextReviewDate <= today &&
+    calendarDay(nextReviewDate) <= todayLocalISODate() &&
     status !== 'closed' &&
     status !== 'mitigated'
-  const formatted = new Date(nextReviewDate).toLocaleDateString()
+  const formatted = formatCalendarDate(nextReviewDate)
   return isOverdue ? (
     <Badge variant="destructive">{formatted}</Badge>
   ) : (

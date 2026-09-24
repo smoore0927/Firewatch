@@ -5,12 +5,16 @@ import { dashboardApi, ApiError } from '@/services/api'
 import type { ActionQueueResponse } from '@/types'
 import ActionQueueRow from '@/components/dashboard/ActionQueueRow'
 
+// The endpoint's maximum. The queue arrives most-overdue first, so if a backlog
+// is ever larger, what's cut is the least overdue — and the page says so.
+const QUEUE_LIMIT = 1000
+
 export default function ActionQueuePage() {
   const [data, setData] = useState<ActionQueueResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    dashboardApi.getActionQueue(200)
+    dashboardApi.getActionQueue(QUEUE_LIMIT)
       .then(setData)
       .catch((err) => {
         if (err instanceof ApiError && err.status === 401) {
@@ -49,6 +53,12 @@ export default function ActionQueuePage() {
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
+
+      {data && data.items.length < data.total && (
+        <p className="text-sm text-muted-foreground">
+          Showing the {data.items.length} most overdue of {data.total} items.
+        </p>
+      )}
 
       {data && data.items.length > 0 && (
         <div className="rounded-lg border overflow-hidden">

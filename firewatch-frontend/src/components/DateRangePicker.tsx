@@ -4,6 +4,7 @@ import { Calendar as CalendarIcon } from 'lucide-react'
 import type { DateRange } from 'react-day-picker'
 
 import { cn } from '@/lib/utils'
+import { toLocalISODate } from '@/lib/dates'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -23,13 +24,6 @@ const PRESET_LABELS: Record<Exclude<RangePreset, 'custom'>, string> = {
 }
 
 const PRESET_ORDER: RangePreset[] = ['30d', '60d', '90d', '180d', '1y', 'custom']
-
-function toDateStr(d: Date): string {
-  const year = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
 
 function formatCustomRange(start: Date, end: Date): string {
   const sameYear = start.getFullYear() === end.getFullYear()
@@ -70,7 +64,7 @@ export function DateRangePicker({ start, end, preset, onChange }: Props) {
     const today = new Date()
     const newStart = new Date(today)
     newStart.setDate(today.getDate() - presetDays(p))
-    onChange({ start: toDateStr(newStart), end: toDateStr(today), preset: p })
+    onChange({ start: toLocalISODate(newStart), end: toLocalISODate(today), preset: p })
     setOpen(false)
   }
 
@@ -81,8 +75,8 @@ export function DateRangePicker({ start, end, preset, onChange }: Props) {
   function applyPending() {
     if (!pendingRange?.from || !pendingRange.to) return
     onChange({
-      start: toDateStr(pendingRange.from),
-      end: toDateStr(pendingRange.to),
+      start: toLocalISODate(pendingRange.from),
+      end: toLocalISODate(pendingRange.to),
       preset: 'custom',
     })
     setPendingRange(undefined)

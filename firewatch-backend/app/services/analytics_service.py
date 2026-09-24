@@ -1,4 +1,10 @@
-"""Risk velocity analytics — mean-time-to-mitigation, throughput, residual reduction."""
+"""Risk velocity analytics — mean-time-to-mitigation, throughput, residual reduction.
+
+Severity here is the *inherent* severity of each risk's latest assessment, not
+the current (residual) severity the register shows: these metrics measure how
+fast risks get brought down, and bucketing by residual score would file every
+mitigated risk under Low. See app/core/severity.py.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +14,7 @@ from datetime import date, datetime, time, timezone
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.severity import severity_clause, severity_for_score
 from app.models.risk import Risk, RiskAssessment, RiskHistory
 from app.schemas.analytics import (
     ResidualReductionBySeverity,
@@ -17,35 +24,14 @@ from app.schemas.analytics import (
     VelocityThroughputPoint,
     VelocityThroughputResponse,
 )
+from app.services.assessment_queries import latest_assessment_ids
 
 
 _SEVERITY_KEYS = ("critical", "high", "medium", "low")
 
 
-def _severity_for_score(score: int) -> str:
-    """Map a risk_score to a severity bucket using the dashboard convention."""
-    if score <= 5:
-        return "low"
-    if score <= 12:
-        return "medium"
-    if score <= 20:
-        return "high"
-    return "critical"
-
-
 def _avg_or_none(values: list[float]) -> float | None:
     return round(sum(values) / len(values), 1) if values else None
-
-
-def _latest_assessment_subquery(db: Session):
-    return (
-        db.query(
-            RiskAssessment.risk_id,
-            func.max(RiskAssessment.assessed_at).label("latest"),
-        )
-        .group_by(RiskAssessment.risk_id)
-        .subquery()
-    )
 
 
 def _first_closure_subquery(db: Session):
@@ -62,17 +48,6 @@ def _first_closure_subquery(db: Session):
     )
 
 
-def _severity_score_filter(severity: str):
-    """Returns a SQLAlchemy clause filtering RiskAssessment.risk_score by severity bucket."""
-    if severity == "low":
-        return RiskAssessment.risk_score <= 5
-    if severity == "medium":
-        return (RiskAssessment.risk_score > 5) & (RiskAssessment.risk_score <= 12)
-    if severity == "high":
-        return (RiskAssessment.risk_score > 12) & (RiskAssessment.risk_score <= 20)
-    return RiskAssessment.risk_score > 20  # critical
-
-
 def build_mttm(
     db: Session,
     start: date,
@@ -84,7 +59,7 @@ def build_mttm(
     end_dt = datetime.combine(end, time.max, tzinfo=timezone.utc)
 
     closure = _first_closure_subquery(db)
-    latest = _latest_assessment_subquery(db)
+    latest = latest_assessment_ids(db)
 
     query = db.query(
         Risk.id,
@@ -95,15 +70,11 @@ def build_mttm(
 
     if severity is not None:
         query = query.join(latest, latest.c.risk_id == Risk.id).join(
-            RiskAssessment,
-            (RiskAssessment.risk_id == latest.c.risk_id)
-            & (RiskAssessment.assessed_at == latest.c.latest),
+            RiskAssessment, RiskAssessment.id == latest.c.assessment_id,
         )
     else:
         query = query.outerjoin(latest, latest.c.risk_id == Risk.id).outerjoin(
-            RiskAssessment,
-            (RiskAssessment.risk_id == latest.c.risk_id)
-            & (RiskAssessment.assessed_at == latest.c.latest),
+            RiskAssessment, RiskAssessment.id == latest.c.assessment_id,
         )
 
     query = (
@@ -115,7 +86,7 @@ def build_mttm(
     if category is not None:
         query = query.filter(Risk.category == category)
     if severity is not None:
-        query = query.filter(_severity_score_filter(severity))
+        query = query.filter(severity_clause(RiskAssessment.risk_score, severity))
 
     rows = query.all()
 
@@ -125,8 +96,8 @@ def build_mttm(
     for _risk_id, created_at, closed_at, risk_score in rows:
         delta_days = (closed_at - created_at).total_seconds() / 86400.0
         all_deltas.append(delta_days)
-        if risk_score is not None:
-            bucket = _severity_for_score(risk_score)
+        bucket = severity_for_score(risk_score)
+        if bucket is not None:
             by_severity_deltas[bucket].append(delta_days)
 
     mean_days = _avg_or_none(all_deltas)
@@ -179,15 +150,11 @@ def build_throughput(
     if category is not None:
         opened_query = opened_query.filter(Risk.category == category)
     if severity is not None:
-        latest_opened = _latest_assessment_subquery(db)
+        latest_opened = latest_assessment_ids(db)
         opened_query = (
             opened_query.join(latest_opened, latest_opened.c.risk_id == Risk.id)
-            .join(
-                RiskAssessment,
-                (RiskAssessment.risk_id == latest_opened.c.risk_id)
-                & (RiskAssessment.assessed_at == latest_opened.c.latest),
-            )
-            .filter(_severity_score_filter(severity))
+            .join(RiskAssessment, RiskAssessment.id == latest_opened.c.assessment_id)
+            .filter(severity_clause(RiskAssessment.risk_score, severity))
         )
     opened_rows = opened_query.all()
 
@@ -202,15 +169,11 @@ def build_throughput(
     if category is not None:
         closed_query = closed_query.filter(Risk.category == category)
     if severity is not None:
-        latest_closed = _latest_assessment_subquery(db)
+        latest_closed = latest_assessment_ids(db)
         closed_query = (
             closed_query.join(latest_closed, latest_closed.c.risk_id == Risk.id)
-            .join(
-                RiskAssessment,
-                (RiskAssessment.risk_id == latest_closed.c.risk_id)
-                & (RiskAssessment.assessed_at == latest_closed.c.latest),
-            )
-            .filter(_severity_score_filter(severity))
+            .join(RiskAssessment, RiskAssessment.id == latest_closed.c.assessment_id)
+            .filter(severity_clause(RiskAssessment.risk_score, severity))
         )
     closed_rows = closed_query.all()
 
@@ -241,15 +204,11 @@ def build_residual_reduction(
     severity: str | None = None,
     category: str | None = None,
 ) -> ResidualReductionResponse:
-    latest = _latest_assessment_subquery(db)
+    latest = latest_assessment_ids(db)
 
     query = (
         db.query(RiskAssessment.risk_score, RiskAssessment.residual_risk_score)
-        .join(
-            latest,
-            (RiskAssessment.risk_id == latest.c.risk_id)
-            & (RiskAssessment.assessed_at == latest.c.latest),
-        )
+        .join(latest, RiskAssessment.id == latest.c.assessment_id)
         .join(Risk, Risk.id == RiskAssessment.risk_id)
         .filter(Risk.deleted_at.is_(None))
         .filter(RiskAssessment.risk_score.isnot(None))
@@ -259,7 +218,7 @@ def build_residual_reduction(
     if category is not None:
         query = query.filter(Risk.category == category)
     if severity is not None:
-        query = query.filter(_severity_score_filter(severity))
+        query = query.filter(severity_clause(RiskAssessment.risk_score, severity))
 
     rows = query.all()
 
@@ -272,7 +231,7 @@ def build_residual_reduction(
         percentage = (absolute / risk_score) * 100.0 if risk_score else 0.0
         absolutes.append(absolute)
         percentages.append(percentage)
-        by_severity_abs[_severity_for_score(risk_score)].append(absolute)
+        by_severity_abs[severity_for_score(risk_score)].append(absolute)
 
     return ResidualReductionResponse(
         avg_absolute=_avg_or_none(absolutes),

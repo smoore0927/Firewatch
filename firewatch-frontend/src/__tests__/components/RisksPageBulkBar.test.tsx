@@ -22,7 +22,7 @@ vi.mock('@/services/api', () => {
   }
   return {
     risksApi: {
-      list: vi.fn(),
+      listAll: vi.fn(),
       exportCsv: vi.fn(),
       bulkReassign: vi.fn(),
       bulkSetStatus: vi.fn(),
@@ -59,7 +59,7 @@ let mockUser: User = ADMIN_USER
 import { risksApi } from '@/services/api'
 import RisksPage from '@/pages/RisksPage'
 
-const mockedList = risksApi.list as unknown as ReturnType<typeof vi.fn>
+const mockedList = risksApi.listAll as unknown as ReturnType<typeof vi.fn>
 
 function makeRisk(id: number): Risk {
   return {
@@ -87,6 +87,8 @@ function makeRisk(id: number): Risk {
         assessed_by: { id: 1, email: 'a@b.com', full_name: 'Owner', role: 'admin' },
       },
     ],
+    current_score: 9,
+    severity: 'medium',
     responses: [],
     history: [],
     created_at: '2026-01-01T00:00:00Z',

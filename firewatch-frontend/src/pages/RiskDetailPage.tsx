@@ -15,6 +15,7 @@ import { useAuth } from '@/context/AuthContext'
 import { risksApi, usersApi, frameworksApi, ApiError, errorMessage } from '@/services/api'
 import { RISK_STATUS_LABELS } from '@/lib/constants'
 import { truncate } from '@/lib/format'
+import { calendarDay, formatCalendarDate, todayLocalISODate } from '@/lib/dates'
 import { FIELD_LABELS, buildTimeline, buildEditHistory } from '@/lib/risk-timeline'
 import type { TimelineEntry, EditCommit } from '@/lib/risk-timeline'
 import { currentScore, scoreLabel, formatLikelihoodImpact } from '@/types'
@@ -423,11 +424,7 @@ function responseStatusVariant(val: ResponseStatus): BadgeVariant {
 
 function isOverdue(targetDate: string | null, status: ResponseStatus): boolean {
   if (!targetDate || status === 'completed') return false
-  const t = new Date(targetDate)
-  t.setHours(0, 0, 0, 0)
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  return t.getTime() < today.getTime()
+  return calendarDay(targetDate) < todayLocalISODate()
 }
 
 function dateInputValue(iso: string | null): string {
@@ -577,6 +574,7 @@ function ResponseRow({
   const [isSavingEdit, setIsSavingEdit] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isSavingStatus, setIsSavingStatus] = useState(false)
+  const [rowError, setRowError] = useState<string | null>(null)
 
   const overdue = isOverdue(response.target_date, response.status)
   const hasDates = response.target_date || response.completion_date
@@ -614,9 +612,12 @@ function ResponseRow({
   }
 
   async function handleDeleteConfirm() {
+    setRowError(null)
     setIsDeleting(true)
     try {
       await onConfirmDelete()
+    } catch (err) {
+      setRowError(errorMessage(err, 'Could not delete this response.'))
     } finally {
       setIsDeleting(false)
     }
@@ -625,9 +626,12 @@ function ResponseRow({
   async function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const next = e.target.value as ResponseStatus
     if (next === response.status) return
+    setRowError(null)
     setIsSavingStatus(true)
     try {
       await onStatusQuickChange(next)
+    } catch (err) {
+      setRowError(errorMessage(err, 'Could not change the status of this response.'))
     } finally {
       setIsSavingStatus(false)
     }
@@ -697,11 +701,11 @@ function ResponseRow({
           {hasDates && (
             <p className="text-xs text-muted-foreground">
               {response.target_date && (
-                <span>Target: {new Date(response.target_date).toLocaleDateString()}</span>
+                <span>Target: {formatCalendarDate(response.target_date)}</span>
               )}
               {response.target_date && response.completion_date && <span>{' · '}</span>}
               {response.completion_date && (
-                <span>Completed: {new Date(response.completion_date).toLocaleDateString()}</span>
+                <span>Completed: {formatCalendarDate(response.completion_date)}</span>
               )}
             </p>
           )}
@@ -751,6 +755,10 @@ function ResponseRow({
           </Button>
         </div>
       )}
+
+      {rowError && (
+        <p role="alert" className="text-xs text-destructive">{rowError}</p>
+      )}
     </li>
   )
 }
@@ -790,14 +798,11 @@ function ResponsePlans({
     }
   }
 
+  // A failure propagates to the row, which shows it and keeps the confirm open.
   async function handleDelete(responseId: number) {
-    try {
-      await risksApi.deleteResponse(risk.risk_id, responseId)
-      setDeletingResponseId(null)
-      onChanged()
-    } catch {
-      // Leave the confirm UI open on failure; user can retry or cancel.
-    }
+    await risksApi.deleteResponse(risk.risk_id, responseId)
+    setDeletingResponseId(null)
+    onChanged()
   }
 
   async function handleStatusChange(responseId: number, status: ResponseStatus) {
@@ -1161,11 +1166,15 @@ function MappedControlRow({
   onRemove: () => Promise<void>
 }>) {
   const [isRemoving, setIsRemoving] = useState(false)
+  const [removeError, setRemoveError] = useState<string | null>(null)
 
   async function handleRemove() {
+    setRemoveError(null)
     setIsRemoving(true)
     try {
       await onRemove()
+    } catch (err) {
+      setRemoveError(errorMessage(err, 'Could not remove this control.'))
     } finally {
       setIsRemoving(false)
     }
@@ -1202,6 +1211,9 @@ function MappedControlRow({
           </Button>
         )}
       </div>
+      {removeError && (
+        <p role="alert" className="text-xs text-destructive">{removeError}</p>
+      )}
     </li>
   )
 }
@@ -1374,6 +1386,7 @@ function ScoreCard({
   canEdit,
   isAssessing,
   isSavingAssessment,
+  assessError,
   assessForm,
   setAssessForm,
   onStartAssessing,
@@ -1385,6 +1398,7 @@ function ScoreCard({
   canEdit: boolean
   isAssessing: boolean
   isSavingAssessment: boolean
+  assessError: string | null
   assessForm: { residual_likelihood: string; residual_impact: string; notes: string }
   setAssessForm: React.Dispatch<React.SetStateAction<{ residual_likelihood: string; residual_impact: string; notes: string }>>
   onStartAssessing: () => void
@@ -1488,6 +1502,10 @@ function ScoreCard({
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 resize-none"
               />
 
+              {assessError && (
+                <p role="alert" className="text-xs text-destructive">{assessError}</p>
+              )}
+
               <div className="flex items-center gap-2">
                 <Button
                   type="submit"
@@ -1590,12 +1608,18 @@ export default function RiskDetailPage() {
   const [risk, setRisk] = useState<Risk | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // A failed inline edit (status, owner) or post-save refresh. Shown under the
+  // header without replacing the page.
+  const [actionError, setActionError] = useState<string | null>(null)
 
   // Extracted so handlers (status change, re-assess) can refresh after saving
-  // without navigating away.
+  // without navigating away. The save already succeeded by the time this runs,
+  // so a failure keeps the page and says so rather than claiming "not found".
   function loadRisk() {
     if (!riskId) return
-    risksApi.get(riskId).then(setRisk).catch(() => setError('Risk not found.'))
+    risksApi.get(riskId)
+      .then(setRisk)
+      .catch(() => setActionError('Saved, but the page could not refresh. Reload to see the latest.'))
   }
 
   useEffect(() => {
@@ -1635,10 +1659,13 @@ export default function RiskDetailPage() {
     if (!riskId) return
     const newStatus = e.target.value
     if (!Object.prototype.hasOwnProperty.call(STATUS_LABELS, newStatus)) return
+    setActionError(null)
     setIsSavingStatus(true)
     try {
       await risksApi.update(riskId, { status: newStatus as RiskStatus })
       loadRisk()
+    } catch (err) {
+      setActionError(errorMessage(err, 'Could not change the status.'))
     } finally {
       setIsSavingStatus(false)
     }
@@ -1649,10 +1676,13 @@ export default function RiskDetailPage() {
 
   async function handleOwnerChange(e: React.ChangeEvent<HTMLSelectElement>) {
     if (!riskId) return
+    setActionError(null)
     setIsSavingOwner(true)
     try {
       await risksApi.update(riskId, { owner_id: Number(e.target.value) })
       loadRisk()
+    } catch (err) {
+      setActionError(errorMessage(err, 'Could not change the owner.'))
     } finally {
       setIsSavingOwner(false)
     }
@@ -1661,6 +1691,7 @@ export default function RiskDetailPage() {
   // ---- Inline re-assess ----
   const [isAssessing, setIsAssessing]         = useState(false)
   const [isSavingAssessment, setIsSavingAssessment] = useState(false)
+  const [assessError, setAssessError] = useState<string | null>(null)
   const [assessForm, setAssessForm] = useState({
     residual_likelihood: '',
     residual_impact: '',
@@ -1670,6 +1701,7 @@ export default function RiskDetailPage() {
   async function handleAddAssessment(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!riskId || !latestAssessment) return
+    setAssessError(null)
     setIsSavingAssessment(true)
     try {
       const hasResidual = !!assessForm.residual_likelihood && !!assessForm.residual_impact
@@ -1689,6 +1721,8 @@ export default function RiskDetailPage() {
         notes: '',
       })
       loadRisk()
+    } catch (err) {
+      setAssessError(errorMessage(err, 'Could not save this review.'))
     } finally {
       setIsSavingAssessment(false)
     }
@@ -1767,6 +1801,12 @@ export default function RiskDetailPage() {
         onRequestDelete={() => { setDeleteError(null); setIsDeleteOpen(true) }}
       />
 
+      {actionError && (
+        <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          {actionError}
+        </p>
+      )}
+
       {/* ---- Score card ---- */}
       <ScoreCard
         score={score}
@@ -1774,11 +1814,13 @@ export default function RiskDetailPage() {
         canEdit={canEdit}
         isAssessing={isAssessing}
         isSavingAssessment={isSavingAssessment}
+        assessError={assessError}
         assessForm={assessForm}
         setAssessForm={setAssessForm}
         onStartAssessing={() => setIsAssessing(true)}
         onCancelAssessing={() => {
           setIsAssessing(false)
+          setAssessError(null)
           setAssessForm({
             residual_likelihood: '',
             residual_impact: '',
@@ -1823,7 +1865,7 @@ export default function RiskDetailPage() {
           ) : (
             <Detail label="Owner" value={risk.owner?.full_name ?? risk.owner?.email ?? `User #${risk.owner_id}`} />
           )}
-          <Detail label="Next review"    value={risk.next_review_date ? new Date(risk.next_review_date).toLocaleDateString() : null} />
+          <Detail label="Next review"    value={risk.next_review_date ? formatCalendarDate(risk.next_review_date) : null} />
           <Detail label="Affected asset" value={risk.affected_asset} />
           <Detail label="Threat source"  value={risk.threat_source}  className="sm:col-span-2" />
           <Detail label="Threat event"   value={risk.threat_event}   className="sm:col-span-2" />
