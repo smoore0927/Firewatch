@@ -22,7 +22,8 @@ vi.mock('@/services/api', () => {
   }
   return {
     risksApi: {
-      listAll: vi.fn(),
+      list: vi.fn(),
+      owners: vi.fn(),
       exportCsv: vi.fn(),
       bulkReassign: vi.fn(),
       bulkSetStatus: vi.fn(),
@@ -59,7 +60,8 @@ let mockUser: User = ADMIN_USER
 import { risksApi } from '@/services/api'
 import RisksPage from '@/pages/RisksPage'
 
-const mockedList = risksApi.listAll as unknown as ReturnType<typeof vi.fn>
+const mockedList = risksApi.list as unknown as ReturnType<typeof vi.fn>
+const mockedOwners = risksApi.owners as unknown as ReturnType<typeof vi.fn>
 
 function makeRisk(id: number): Risk {
   return {
@@ -99,6 +101,8 @@ function makeRisk(id: number): Risk {
 describe('RisksPage bulk action bar', () => {
   beforeEach(() => {
     mockedList.mockReset()
+    mockedOwners.mockReset()
+    mockedOwners.mockResolvedValue([])
     mockUser = ADMIN_USER
   })
 

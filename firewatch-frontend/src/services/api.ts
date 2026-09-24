@@ -144,7 +144,7 @@ export const authApi = {
 // Risks
 // -------------------------------------------------------------------------
 
-import type { ActionQueueResponse, ApiKey, ApiKeyCreated, ApiKeyWithOwner, AuditLogListResponse, BulkReassignRequest, BulkRescoreRequest, BulkRiskResult, BulkStatusRequest, Control, ControlFamily, ControlFramework, DashboardSummary, FrameworkImportResult, FrameworkImportUrlRequest, FrameworkUpdateRequest, ImportResult, MarkAllReadResponse, NotificationListResponse, ResidualReductionResponse, ResponseCreate, ResponseUpdate, Risk, RiskControlCreate, RiskControlMapping, RiskCreate, RiskListResponse, RiskReport, RiskUpdate, ScoreHistoryResponse, ScoreTotalsBySeverityResponse, Severity, UnreadCountResponse, User, UserRole, VelocityMTTMResponse, VelocityThroughputResponse, WebhookDeliveryList, WebhookSubscription, WebhookSubscriptionCreate, WebhookSubscriptionCreated, WebhookSubscriptionUpdate } from '@/types'
+import type { ActionQueueResponse, ApiKey, ApiKeyCreated, ApiKeyWithOwner, AuditLogListResponse, BulkReassignRequest, BulkRescoreRequest, BulkRiskResult, BulkStatusRequest, Control, ControlFamily, ControlFramework, DashboardSummary, FrameworkImportResult, FrameworkImportUrlRequest, FrameworkUpdateRequest, ImportResult, MarkAllReadResponse, NotificationListResponse, ResidualReductionResponse, ResponseCreate, ResponseUpdate, Risk, RiskControlCreate, RiskControlMapping, RiskCreate, RiskListResponse, RiskOwnerSummary, RiskReport, RiskSortKey, RiskSortOrder, RiskSeverityParam, RiskUpdate, ScoreHistoryResponse, ScoreTotalsBySeverityResponse, Severity, UnreadCountResponse, User, UserRole, VelocityMTTMResponse, VelocityThroughputResponse, WebhookDeliveryList, WebhookSubscription, WebhookSubscriptionCreate, WebhookSubscriptionCreated, WebhookSubscriptionUpdate } from '@/types'
 
 // Parses a Content-Disposition header value to extract the filename.
 // Handles both `filename="x.csv"` and the RFC 5987 `filename*=UTF-8''x.csv` form.
@@ -213,6 +213,10 @@ type RiskListParams = {
   category?: string
   owner_id?: number
   due_for_review?: boolean
+  search?: string
+  severity?: RiskSeverityParam
+  sort?: RiskSortKey
+  order?: RiskSortOrder
   skip?: number
   limit?: number
 }
@@ -223,6 +227,11 @@ function listRisks(params?: RiskListParams) {
   if (params?.category) qs.set('category', params.category)
   if (params?.owner_id) qs.set('owner_id', String(params.owner_id))
   if (params?.due_for_review) qs.set('due_for_review', 'true')
+  const search = params?.search?.trim()
+  if (search) qs.set('search', search)
+  if (params?.severity) qs.set('severity', params.severity)
+  if (params?.sort) qs.set('sort', params.sort)
+  if (params?.order) qs.set('order', params.order)
   if (params?.skip !== undefined) qs.set('skip', String(params.skip))
   if (params?.limit !== undefined) qs.set('limit', String(params.limit))
   const query = qs.toString() ? `?${qs.toString()}` : ''
@@ -257,6 +266,9 @@ export const risksApi = {
       }
     }
   },
+
+  /** Distinct owners of risks visible to the caller — for the Owner filter dropdown. */
+  owners: () => request<RiskOwnerSummary[]>('/api/risks/owners'),
 
   get: (riskId: string) => request<Risk>(`/api/risks/${riskId}`),
 

@@ -10,7 +10,7 @@
  * bottom of the file have no backend equivalent and stay hand-written.
  */
 
-import type { components } from './generated'
+import type { components, operations } from './generated'
 
 // -------------------------------------------------------------------------
 // Auth
@@ -44,6 +44,13 @@ export type Risk = components['schemas']['RiskResponse']
 export type RiskListResponse = components['schemas']['RiskListResponse']
 export type RiskCreate = components['schemas']['RiskCreate']
 export type RiskUpdate = components['schemas']['RiskUpdate']
+
+// Query-param literal unions for GET /api/risks, derived from the generated
+// operation so they stay in sync with the backend's accepted values.
+type RiskListQuery = NonNullable<operations['list_risks_api_risks_get']['parameters']['query']>
+export type RiskSortKey = NonNullable<RiskListQuery['sort']>
+export type RiskSortOrder = NonNullable<RiskListQuery['order']>
+export type RiskSeverityParam = NonNullable<RiskListQuery['severity']>
 
 export type ImportResultRow = components['schemas']['ImportResultRow']
 export type ImportResult = components['schemas']['ImportResult']

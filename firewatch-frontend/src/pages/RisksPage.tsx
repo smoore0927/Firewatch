@@ -2,25 +2,33 @@
  * Risk list page — the primary working view of the app.
  *
  * Features:
- *   - Fetches every risk on mount, paging through GET /api/risks (risksApi.listAll)
- *   - Client-side filter by status
- *   - Client-side sort by title, score, or status (toggle asc/desc)
+ *   - Fetches one page of risks at a time from GET /api/risks (risksApi.list)
+ *   - Filter, search and sort are all sent to the server as query params
  *   - Score badge colour-coded by severity (Low/Medium/High/Critical)
  *   - "New risk" button visible only to admin and security_analyst roles
  *
- * Why client-side sort/filter instead of server-side?
- *   The API supports server-side filtering (status, owner_id) and pagination.
- *   For a small risk register (<500 items) client-side is simpler and instant.
- *   When the register grows, swap the filter/sort state into API query params.
+ * The view (filters, search, sort, page, page size) lives in the URL query
+ * string (lib/register-view.ts), so refreshing, sharing a link, or coming back
+ * from a risk lands on the same page. Every filter/search/sort change resets
+ * to page 1. Search is debounced; a request-sequence ref discards stale
+ * responses that resolve out of order.
  */
-import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { risksApi, ApiError, errorMessage } from '@/services/api'
 import { CATEGORIES, RISK_STATUS_LABELS } from '@/lib/constants'
-import { currentScore, scoreLabel, severityLabel } from '@/types'
-import type { BulkRiskResult, Risk, RiskStatus } from '@/types'
+import { currentScore, scoreLabel } from '@/types'
+import type { BulkRiskResult, Risk, RiskSeverityParam, RiskSortKey, RiskStatus } from '@/types'
 import { calendarDay, formatCalendarDate, todayLocalISODate } from '@/lib/dates'
+import {
+  PAGE_SIZES,
+  SEVERITY_OPTIONS,
+  parseRegisterView,
+  registerViewToParams,
+  rememberRegisterSearch,
+  type RegisterView,
+} from '@/lib/register-view'
 import { Badge, scoreToBadgeVariant } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -32,18 +40,14 @@ import { ShieldAlert, ArrowUpDown, ArrowUp, ArrowDown, Plus, Download, Upload, X
 
 // ---- Types ------------------------------------------------------------------
 
-type SortKey = 'id' | 'title' | 'category' | 'score' | 'status' | 'owner' | 'next_review'
+type SortKey = RiskSortKey
 type SortDir = 'asc' | 'desc'
-type SeverityBucket = 'all' | 'Critical' | 'High' | 'Medium' | 'Low' | 'Unscored'
 
-const SEVERITY_BUCKETS: Exclude<SeverityBucket, 'all'>[] = ['Critical', 'High', 'Medium', 'Low', 'Unscored']
+const SEARCH_DEBOUNCE_MS = 300
+const NO_SELECTION: ReadonlySet<string> = new Set()
 
 function ownerLabel(risk: Risk): string {
   return risk.owner?.full_name ?? risk.owner?.email ?? `#${risk.owner_id}`
-}
-
-function severityBucket(risk: Risk): Exclude<SeverityBucket, 'all'> {
-  return severityLabel(risk) ?? 'Unscored'
 }
 
 // ---- Helpers ----------------------------------------------------------------
@@ -52,42 +56,6 @@ function bulkBannerMessage(updated: number, failed: number): string {
   const plural = updated === 1 ? '' : 's'
   if (failed > 0) return `Updated ${updated} risk${plural} · ${failed} failed`
   return `Updated ${updated} risk${plural}`
-}
-
-
-type Comparator = (a: Risk, b: Risk) => { result: number; pinToEnd: number }
-
-const COMPARATORS: Record<SortKey, Comparator> = {
-  title:       (a, b) => ({ result: a.title.localeCompare(b.title), pinToEnd: 0 }),
-  score:       (a, b) => ({ result: (currentScore(a) ?? -1) - (currentScore(b) ?? -1), pinToEnd: 0 }),
-  status:      (a, b) => ({ result: a.status.localeCompare(b.status), pinToEnd: 0 }),
-  id:          (a, b) => ({ result: a.risk_id.localeCompare(b.risk_id, undefined, { numeric: true }), pinToEnd: 0 }),
-  owner:       (a, b) => ({
-    result: (a.owner?.full_name ?? a.owner?.email ?? `#${a.owner_id}`)
-              .localeCompare(b.owner?.full_name ?? b.owner?.email ?? `#${b.owner_id}`),
-    pinToEnd: 0,
-  }),
-  category:    (a, b) => {
-    const ca = a.category ?? ''
-    const cb = b.category ?? ''
-    if (!ca && cb) return { result: 0, pinToEnd: 1 }
-    if (ca && !cb) return { result: 0, pinToEnd: -1 }
-    return { result: ca.localeCompare(cb), pinToEnd: 0 }
-  },
-  next_review: (a, b) => {
-    const da = a.next_review_date ?? ''
-    const db = b.next_review_date ?? ''
-    if (!da && db) return { result: 0, pinToEnd: 1 }
-    if (da && !db) return { result: 0, pinToEnd: -1 }
-    return { result: da.localeCompare(db), pinToEnd: 0 }
-  },
-}
-
-/** Sort comparator — returns negative/zero/positive like Array.sort expects. */
-function compareRisks(a: Risk, b: Risk, key: SortKey, dir: SortDir): number {
-  const { result, pinToEnd } = COMPARATORS[key](a, b)
-  if (pinToEnd !== 0) return pinToEnd
-  return dir === 'asc' ? result : -result
 }
 
 function emptyStateMessage(anyFilterActive: boolean, canCreate: boolean): string {
@@ -102,21 +70,44 @@ export default function RisksPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
 
-  // Raw data from the API
+  // Raw data from the API — one page.
   const [risks, setRisks] = useState<Risk[]>([])
   const [total, setTotal] = useState(0)
-  const [isLoading, setIsLoading] = useState(true)
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
+  const [isFetching, setIsFetching] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Filter + sort state
-  const [statusFilter, setStatusFilter] = useState<RiskStatus | 'all'>('all')
-  const [dueForReviewOnly, setDueForReviewOnly] = useState(false)
-  const [search, setSearch] = useState('')
-  const [categoryFilter, setCategoryFilter] = useState<string>('all')
-  const [ownerFilter, setOwnerFilter] = useState<string>('all')
-  const [severityFilter, setSeverityFilter] = useState<SeverityBucket>('all')
-  const [sortKey, setSortKey] = useState<SortKey>('title')
-  const [sortDir, setSortDir] = useState<SortDir>('asc')
+  // The applied view comes from the URL. Only the text being typed into the
+  // search box is local until it settles.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const view = useMemo(() => parseRegisterView(searchParams), [searchParams])
+  const viewKey = useMemo(() => registerViewToParams(view).toString(), [view])
+  const { page: pageIndex, pageSize, sort: sortKey, order: sortDir } = view
+
+  const [searchInput, setSearchInput] = useState(view.search)
+
+  // When the applied search changes from outside the box (Back/Forward, the
+  // sidebar link), show it. Keyed on the search alone, so a status change
+  // mid-typing doesn't wipe what's in the box.
+  const [syncedSearch, setSyncedSearch] = useState(view.search)
+  if (syncedSearch !== view.search) {
+    setSyncedSearch(view.search)
+    if (view.search !== searchInput.trim()) setSearchInput(view.search)
+  }
+
+  // Any change other than the page itself goes back to page 1. Replacing the
+  // history entry keeps the register at one entry, so Back leaves the register
+  // rather than stepping through every filter change.
+  const updateView = useCallback((patch: Partial<RegisterView>) => {
+    setSearchParams(registerViewToParams({ ...view, page: 0, ...patch }), { replace: true })
+  }, [view, setSearchParams])
+
+  useEffect(() => {
+    rememberRegisterSearch(viewKey ? `?${viewKey}` : '')
+  }, [viewKey])
+
+  // Owner filter options — fetched independently of the current page.
+  const [ownerOptions, setOwnerOptions] = useState<{ id: number; label: string }[]>([])
 
   // CSV import / export UI state
   const [isExporting, setIsExporting] = useState(false)
@@ -124,38 +115,87 @@ export default function RisksPage() {
   const [importOpen, setImportOpen] = useState(false)
 
   // Bulk action state — selection keyed by risk_id (RISK-NNN), since that's
-  // what the bulk endpoints accept.
-  const [selected, setSelected] = useState<Set<string>>(new Set())
+  // what the bulk endpoints accept. A selection belongs to the view it was
+  // made in, so changing the page, a filter or the sort clears it.
+  const [selection, setSelection] = useState<{ viewKey: string; ids: ReadonlySet<string> }>(
+    { viewKey, ids: NO_SELECTION },
+  )
+  const selected = selection.viewKey === viewKey ? selection.ids : NO_SELECTION
   const [reassignOpen, setReassignOpen] = useState(false)
   const [statusOpen, setStatusOpen] = useState(false)
   const [rescoreOpen, setRescoreOpen] = useState(false)
   const [bulkBanner, setBulkBanner] = useState<{ message: string; details: BulkRiskResult['errors'] } | null>(null)
   const bannerTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null)
 
+  // Debounce the search box; the settled text goes into the URL. Nothing is
+  // scheduled when the trimmed text already matches the applied search (on
+  // mount, or after a trailing space), so it can't reset the page for nothing.
+  // updateView changes with the view, so a pending search is rescheduled
+  // against the latest URL instead of overwriting a newer filter change.
+  useEffect(() => {
+    const next = searchInput.trim()
+    if (next === view.search) return
+    const handle = globalThis.setTimeout(() => updateView({ search: next }), SEARCH_DEBOUNCE_MS)
+    return () => globalThis.clearTimeout(handle)
+  }, [searchInput, view.search, updateView])
+
+  const requestSeq = useRef(0)
+
   const loadRisks = useCallback(() => {
-    setIsLoading(true)
-    risksApi.listAll(dueForReviewOnly ? { due_for_review: true } : undefined)
+    const seq = ++requestSeq.current
+    setIsFetching(true)
+    risksApi.list({
+      status: view.status !== 'all' ? view.status : undefined,
+      category: view.category !== 'all' ? view.category : undefined,
+      owner_id: view.owner !== 'all' ? Number(view.owner) : undefined,
+      due_for_review: view.dueForReview ? true : undefined,
+      search: view.search || undefined,
+      severity: view.severity !== 'all' ? view.severity : undefined,
+      sort: view.sort,
+      order: view.order,
+      skip: view.page * view.pageSize,
+      limit: view.pageSize,
+    })
       .then((data) => {
+        if (seq !== requestSeq.current) return // a newer request has since started
         setRisks(data.items)
         setTotal(data.total)
-      })
-      .catch((err) => {
-        // 401 means the session expired — prompt to re-login rather than
-        // showing a generic error that implies something is broken.
-        if (err instanceof ApiError && err.status === 401) {
-          setError('Your session has expired. Please sign in again.')
-        } else {
-          setError('Could not load risks. Check that the backend is running and try refreshing.')
+        setError(null)
+        // The page can be past the end: a stale link, or a bulk action that
+        // moved rows out of the current filter. Step back to the last page
+        // that actually has rows.
+        if (data.items.length === 0 && data.total > 0) {
+          const lastPage = Math.max(0, Math.ceil(data.total / view.pageSize) - 1)
+          if (lastPage !== view.page) updateView({ page: lastPage })
         }
       })
-      .finally(() => setIsLoading(false))
-  }, [dueForReviewOnly])
+      .catch((err) => {
+        if (seq !== requestSeq.current) return
+        // 401 means the session expired — prompt to re-login rather than
+        // showing a generic error that implies something is broken.
+        const message = err instanceof ApiError && err.status === 401
+          ? 'Your session has expired. Please sign in again.'
+          : 'Could not load risks. Check that the backend is running and try refreshing.'
+        setError(message)
+      })
+      .finally(() => {
+        if (seq !== requestSeq.current) return
+        setIsFetching(false)
+        setHasLoadedOnce(true)
+      })
+  }, [view, updateView])
 
-  // Re-fetch whenever the due-for-review toggle changes.
   useEffect(() => { loadRisks() }, [loadRisks])
 
-  // Clear selection when the visible set changes underneath the user.
-  useEffect(() => { setSelected(new Set()) }, [dueForReviewOnly, statusFilter, search, categoryFilter, ownerFilter, severityFilter])
+  const loadOwnerOptions = useCallback(() => {
+    risksApi.owners()
+      .then((owners) => {
+        setOwnerOptions(owners.map((o) => ({ id: o.id, label: o.full_name ?? o.email })))
+      })
+      .catch(() => { /* Owner dropdown just keeps "All owners" on failure. */ })
+  }, [])
+
+  useEffect(() => { loadOwnerOptions() }, [loadOwnerOptions])
 
   // Clean up any pending banner-dismiss timer on unmount.
   useEffect(() => () => {
@@ -171,18 +211,28 @@ export default function RisksPage() {
     bannerTimerRef.current = globalThis.setTimeout(() => setBulkBanner(null), 5000)
   }
 
+  function setSelected(ids: ReadonlySet<string>) {
+    setSelection({ viewKey, ids })
+  }
+
   function handleBulkDone(result: BulkRiskResult) {
     showBulkBanner(result)
-    setSelected(new Set())
+    setSelected(NO_SELECTION)
     loadRisks()
+    loadOwnerOptions() // a reassign can introduce/remove owners from the filter list
+  }
+
+  function handleImported() {
+    loadRisks()
+    loadOwnerOptions() // an import can introduce new owners
   }
 
   function toggleSelected(riskId: string) {
-    setSelected((prev) => {
-      const next = new Set(prev)
+    setSelection((prev) => {
+      const next = new Set(prev.viewKey === viewKey ? prev.ids : NO_SELECTION)
       if (next.has(riskId)) next.delete(riskId)
       else next.add(riskId)
-      return next
+      return { viewKey, ids: next }
     })
   }
 
@@ -198,78 +248,25 @@ export default function RisksPage() {
     }
   }
 
-  // Distinct owners present in the loaded risks, sorted by label.
-  const ownerOptions = useMemo(() => {
-    const map = new Map<number, string>()
-    for (const r of risks) {
-      if (!map.has(r.owner_id)) map.set(r.owner_id, ownerLabel(r))
-    }
-    return Array.from(map.entries())
-      .map(([id, label]) => ({ id, label }))
-      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
-  }, [risks])
-
-  // Derived: filtered then sorted — recalculated only when dependencies change.
-  // useMemo avoids re-sorting on every render (e.g. while the user types elsewhere).
-  const displayedRisks = useMemo(() => {
-    let items = risks
-    if (statusFilter !== 'all') {
-      items = items.filter((r) => r.status === statusFilter)
-    }
-    if (categoryFilter !== 'all') {
-      items = items.filter((r) => r.category === categoryFilter)
-    }
-    if (ownerFilter !== 'all') {
-      const ownerId = Number(ownerFilter)
-      items = items.filter((r) => r.owner_id === ownerId)
-    }
-    if (severityFilter !== 'all') {
-      items = items.filter((r) => severityBucket(r) === severityFilter)
-    }
-    const q = search.trim().toLowerCase()
-    if (q) {
-      items = items.filter((r) => {
-        const fields = [
-          r.risk_id,
-          r.title,
-          r.description ?? '',
-          r.threat_source ?? '',
-          r.threat_event ?? '',
-          r.vulnerability ?? '',
-          r.affected_asset ?? '',
-          r.category ?? '',
-          ownerLabel(r),
-        ]
-        return fields.some((f) => f.toLowerCase().includes(q))
-      })
-    }
-    return [...items].sort((a, b) => compareRisks(a, b, sortKey, sortDir))
-  }, [risks, statusFilter, categoryFilter, ownerFilter, severityFilter, search, sortKey, sortDir])
-
   const anyFilterActive =
-    search.trim() !== '' ||
-    statusFilter !== 'all' ||
-    categoryFilter !== 'all' ||
-    ownerFilter !== 'all' ||
-    severityFilter !== 'all' ||
-    dueForReviewOnly
+    searchInput.trim() !== '' ||
+    view.status !== 'all' ||
+    view.category !== 'all' ||
+    view.owner !== 'all' ||
+    view.severity !== 'all' ||
+    view.dueForReview
 
   function clearAllFilters() {
-    setSearch('')
-    setStatusFilter('all')
-    setCategoryFilter('all')
-    setOwnerFilter('all')
-    setSeverityFilter('all')
-    setDueForReviewOnly(false)
+    setSearchInput('')
+    updateView({ search: '', status: 'all', category: 'all', owner: 'all', severity: 'all', dueForReview: false })
   }
 
   // Toggle sort: clicking the same column flips direction; new column starts asc.
   function handleSort(key: SortKey) {
     if (key === sortKey) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+      updateView({ order: sortDir === 'asc' ? 'desc' : 'asc' })
     } else {
-      setSortKey(key)
-      setSortDir('asc')
+      updateView({ sort: key, order: 'asc' })
     }
   }
 
@@ -283,22 +280,27 @@ export default function RisksPage() {
   const canReassign =
     user?.role === 'admin' || user?.role === 'security_analyst'
 
-  // Select-all checkbox helpers — operate on the currently visible (filtered + sorted) set.
-  const visibleIds = useMemo(() => displayedRisks.map((r) => r.risk_id), [displayedRisks])
-  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id))
-  const someVisibleSelected = visibleIds.some((id) => selected.has(id)) && !allVisibleSelected
+  // Select-all checkbox helpers — operate on the current page only.
+  const pageIds = useMemo(() => risks.map((r) => r.risk_id), [risks])
+  const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id))
+  const somePageSelected = pageIds.some((id) => selected.has(id)) && !allPageSelected
 
-  function toggleSelectAllVisible() {
-    if (allVisibleSelected) {
-      setSelected(new Set())
-    } else {
-      setSelected(new Set(visibleIds))
-    }
+  function toggleSelectAllOnPage() {
+    setSelected(allPageSelected ? NO_SELECTION : new Set(pageIds))
   }
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const rangeStart = total === 0 ? 0 : pageIndex * pageSize + 1
+  const rangeEnd = Math.min(total, (pageIndex + 1) * pageSize)
+  const canGoPrev = pageIndex > 0 && !isFetching
+  const canGoNext = pageIndex + 1 < totalPages && !isFetching
 
   // ---- Render ---------------------------------------------------------------
 
-  if (isLoading) {
+  // Full-page loading state only on the very first load — later loads keep
+  // the header, filter bar and search input mounted (so the search box never
+  // loses focus while the user is typing).
+  if (!hasLoadedOnce && isFetching) {
     return (
       <div className="flex items-center justify-center h-48">
         <p className="text-muted-foreground text-sm">Loading risks...</p>
@@ -306,7 +308,7 @@ export default function RisksPage() {
     )
   }
 
-  if (error) {
+  if (!hasLoadedOnce && error) {
     return (
       <div className="flex items-center justify-center h-48">
         <p className="text-destructive text-sm">{error}</p>
@@ -360,7 +362,7 @@ export default function RisksPage() {
       <ImportRisksDialog
         open={importOpen}
         onClose={() => setImportOpen(false)}
-        onImported={loadRisks}
+        onImported={handleImported}
       />
 
       {/* Bulk action banner — shown after a bulk action completes. */}
@@ -423,14 +425,17 @@ export default function RisksPage() {
 
       {/* Filter bar */}
       <div className="flex flex-col gap-3">
+        {hasLoadedOnce && error && (
+          <p className="text-destructive text-sm">{error}</p>
+        )}
         <div className="flex items-center gap-3">
           <div className="relative w-64">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               type="search"
               placeholder="Search risks…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               className="pl-8"
             />
           </div>
@@ -450,8 +455,8 @@ export default function RisksPage() {
           </label>
           <select
             id="status-filter"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as RiskStatus | 'all')}
+            value={view.status}
+            onChange={(e) => updateView({ status: e.target.value as RiskStatus | 'all' })}
             className="rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="all">All</option>
@@ -465,8 +470,8 @@ export default function RisksPage() {
           </label>
           <select
             id="category-filter"
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
+            value={view.category}
+            onChange={(e) => updateView({ category: e.target.value as RegisterView['category'] })}
             className="rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="all">All categories</option>
@@ -480,8 +485,8 @@ export default function RisksPage() {
           </label>
           <select
             id="owner-filter"
-            value={ownerFilter}
-            onChange={(e) => setOwnerFilter(e.target.value)}
+            value={view.owner}
+            onChange={(e) => updateView({ owner: e.target.value })}
             className="rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="all">All owners</option>
@@ -495,13 +500,13 @@ export default function RisksPage() {
           </label>
           <select
             id="severity-filter"
-            value={severityFilter}
-            onChange={(e) => setSeverityFilter(e.target.value as SeverityBucket)}
+            value={view.severity}
+            onChange={(e) => updateView({ severity: e.target.value as RiskSeverityParam | 'all' })}
             className="rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="all">All severities</option>
-            {SEVERITY_BUCKETS.map((s) => (
-              <option key={s} value={s}>{s}</option>
+            {SEVERITY_OPTIONS.map((s) => (
+              <option key={s.value} value={s.value}>{s.label}</option>
             ))}
           </select>
 
@@ -509,8 +514,8 @@ export default function RisksPage() {
             <input
               id="due-for-review"
               type="checkbox"
-              checked={dueForReviewOnly}
-              onChange={(e) => setDueForReviewOnly(e.target.checked)}
+              checked={view.dueForReview}
+              onChange={(e) => updateView({ dueForReview: e.target.checked })}
               className="h-4 w-4 rounded border-input text-primary focus:ring-2 focus:ring-ring"
             />
             <span>Due for review only</span>
@@ -519,7 +524,7 @@ export default function RisksPage() {
       </div>
 
       {/* Empty state */}
-      {displayedRisks.length === 0 ? (
+      {total === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-16 text-center">
           <ShieldAlert className="h-10 w-10 text-muted-foreground mb-3" />
           <p className="font-medium">No risks found</p>
@@ -528,89 +533,145 @@ export default function RisksPage() {
           </p>
         </div>
       ) : (
-
-        /* Risk table */
-        <div className="rounded-lg border overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50 text-muted-foreground">
-              <tr>
-                {canEdit && (
-                  <th className="px-4 py-3 text-left font-medium w-10">
-                    <input
-                      type="checkbox"
-                      aria-label="Select all visible risks"
-                      checked={allVisibleSelected}
-                      ref={(el) => { if (el) el.indeterminate = someVisibleSelected }}
-                      onChange={toggleSelectAllVisible}
-                      className="h-4 w-4 rounded border-input text-primary focus:ring-2 focus:ring-ring"
-                    />
-                  </th>
-                )}
-                <SortableHeader label="ID"          sortKey="id"          current={sortKey} dir={sortDir} onSort={handleSort} />
-                <SortableHeader label="Title"       sortKey="title"       current={sortKey} dir={sortDir} onSort={handleSort} />
-                <SortableHeader label="Category"    sortKey="category"    current={sortKey} dir={sortDir} onSort={handleSort} />
-                <SortableHeader label="Score"       sortKey="score"       current={sortKey} dir={sortDir} onSort={handleSort} />
-                <SortableHeader label="Status"      sortKey="status"      current={sortKey} dir={sortDir} onSort={handleSort} />
-                <SortableHeader label="Owner"       sortKey="owner"       current={sortKey} dir={sortDir} onSort={handleSort} />
-                <SortableHeader label="Next review" sortKey="next_review" current={sortKey} dir={sortDir} onSort={handleSort} />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {displayedRisks.map((risk) => {
-                const score = currentScore(risk)
-                return (
-                  <tr
-                    key={risk.id}
-                    onClick={() => navigate(`/risks/${risk.risk_id}`)}
-                    className="cursor-pointer hover:bg-muted/40 transition-colors"
-                  >
-                    {canEdit && (
-                      <td
-                        className="px-4 py-3"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <input
-                          type="checkbox"
-                          aria-label={`Select ${risk.risk_id}`}
-                          checked={selected.has(risk.risk_id)}
-                          onChange={() => toggleSelected(risk.risk_id)}
-                          className="h-4 w-4 rounded border-input text-primary focus:ring-2 focus:ring-ring"
-                        />
-                      </td>
-                    )}
-                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
-                      {risk.risk_id}
-                    </td>
-                    <td className="px-4 py-3 font-medium">{risk.title}</td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {risk.category ?? <span className="italic">Uncategorised</span>}
-                    </td>
-                    <td className="px-4 py-3">
-                      {score === null ? (
-                        <span className="text-muted-foreground italic text-xs">Unscored</span>
-                      ) : (
-                        <Badge variant={scoreToBadgeVariant(score)}>
-                          {score} — {scoreLabel(score)}
-                        </Badge>
+        <>
+          {/* Risk table — dimmed and non-interactive while a later load is in flight. */}
+          <div
+            className={`rounded-lg border overflow-hidden ${isFetching && hasLoadedOnce ? 'opacity-60' : ''}`}
+            aria-busy={isFetching}
+          >
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 text-muted-foreground">
+                <tr>
+                  {canEdit && (
+                    <th className="px-4 py-3 text-left font-medium w-10">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all risks on this page"
+                        checked={allPageSelected}
+                        ref={(el) => { if (el) el.indeterminate = somePageSelected }}
+                        onChange={toggleSelectAllOnPage}
+                        className="h-4 w-4 rounded border-input text-primary focus:ring-2 focus:ring-ring"
+                      />
+                    </th>
+                  )}
+                  <SortableHeader label="ID"          sortKey="id"          current={sortKey} dir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="Title"       sortKey="title"       current={sortKey} dir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="Category"    sortKey="category"    current={sortKey} dir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="Score"       sortKey="score"       current={sortKey} dir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="Status"      sortKey="status"      current={sortKey} dir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="Owner"       sortKey="owner"       current={sortKey} dir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="Next review" sortKey="next_review" current={sortKey} dir={sortDir} onSort={handleSort} />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {risks.map((risk) => {
+                  const score = currentScore(risk)
+                  return (
+                    <tr
+                      key={risk.id}
+                      onClick={() => navigate(`/risks/${risk.risk_id}`)}
+                      className="cursor-pointer hover:bg-muted/40 transition-colors"
+                    >
+                      {canEdit && (
+                        <td
+                          className="px-4 py-3"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${risk.risk_id}`}
+                            checked={selected.has(risk.risk_id)}
+                            onChange={() => toggleSelected(risk.risk_id)}
+                            className="h-4 w-4 rounded border-input text-primary focus:ring-2 focus:ring-ring"
+                          />
+                        </td>
                       )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant={risk.status}>
-                        {RISK_STATUS_LABELS[risk.status]}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs">
-                      {risk.owner?.full_name ?? risk.owner?.email ?? `#${risk.owner_id}`}
-                    </td>
-                    <td className="px-4 py-3 text-xs">
-                      <ReviewDateCell nextReviewDate={risk.next_review_date} status={risk.status} />
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+                        {risk.risk_id}
+                      </td>
+                      <td className="px-4 py-3 font-medium">{risk.title}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {risk.category ?? <span className="italic">Uncategorised</span>}
+                      </td>
+                      <td className="px-4 py-3">
+                        {score === null ? (
+                          <span className="text-muted-foreground italic text-xs">Unscored</span>
+                        ) : (
+                          <Badge variant={scoreToBadgeVariant(score)}>
+                            {score} — {scoreLabel(score)}
+                          </Badge>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant={risk.status}>
+                          {RISK_STATUS_LABELS[risk.status]}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground text-xs">
+                        {ownerLabel(risk)}
+                      </td>
+                      <td className="px-4 py-3 text-xs">
+                        <ReviewDateCell nextReviewDate={risk.next_review_date} status={risk.status} />
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pager */}
+          <div className="flex items-center justify-between text-sm">
+            <p className="text-muted-foreground">
+              Showing {rangeStart}–{rangeEnd} of {total}
+            </p>
+            <div className="flex items-center gap-3">
+              <label htmlFor="page-size" className="text-muted-foreground">
+                Rows per page
+              </label>
+              <select
+                id="page-size"
+                value={pageSize}
+                onChange={(e) => updateView({ pageSize: Number(e.target.value) })}
+                className="rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                {PAGE_SIZES.map((size) => (
+                  <option key={size} value={size}>{size}</option>
+                ))}
+              </select>
+              <label htmlFor="page-number" className="text-muted-foreground">
+                Page
+              </label>
+              <select
+                id="page-number"
+                value={pageIndex + 1}
+                onChange={(e) => updateView({ page: Number(e.target.value) - 1 })}
+                className="rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                {Array.from({ length: totalPages }, (_, i) => (
+                  <option key={i + 1} value={i + 1}>{i + 1}</option>
+                ))}
+              </select>
+              <span className="text-muted-foreground whitespace-nowrap">of {totalPages}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => updateView({ page: pageIndex - 1 })}
+                disabled={!canGoPrev}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => updateView({ page: pageIndex + 1 })}
+                disabled={!canGoNext}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        </>
       )}
 
       <BulkReassignDialog

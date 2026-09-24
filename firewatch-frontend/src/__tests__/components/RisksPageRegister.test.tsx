@@ -18,7 +18,8 @@ vi.mock('@/services/api', () => {
   }
   return {
     risksApi: {
-      listAll: vi.fn(),
+      list: vi.fn(),
+      owners: vi.fn(),
       exportCsv: vi.fn(),
     },
     usersApi: {
@@ -48,7 +49,8 @@ vi.mock('@/context/AuthContext', () => ({
 import { risksApi } from '@/services/api'
 import RisksPage from '@/pages/RisksPage'
 
-const mockedListAll = risksApi.listAll as unknown as ReturnType<typeof vi.fn>
+const mockedList = risksApi.list as unknown as ReturnType<typeof vi.fn>
+const mockedOwners = risksApi.owners as unknown as ReturnType<typeof vi.fn>
 
 function makeRisk(id: number, overrides: Record<string, unknown> = {}): Risk {
   return {
@@ -82,28 +84,34 @@ function renderPage() {
 
 describe('RisksPage register', () => {
   beforeEach(() => {
-    mockedListAll.mockReset()
+    mockedList.mockReset()
+    mockedOwners.mockReset()
+    mockedOwners.mockResolvedValue([])
   })
 
   afterEach(() => {
     vi.useRealTimers()
   })
 
-  it('lists every risk, not just the first page', async () => {
-    const risks = Array.from({ length: 60 }, (_, i) => makeRisk(i + 1))
-    mockedListAll.mockResolvedValue({ items: risks, total: 60 })
+  it('renders the fetched page and the server total, not just what fits on one page', async () => {
+    // A register of 60 risks with the default page size (25): the page shows
+    // only what the server returned for this page, but the header count
+    // reflects the full matching total.
+    const page = Array.from({ length: 25 }, (_, i) => makeRisk(i + 1))
+    mockedList.mockResolvedValue({ items: page, total: 60 })
 
     renderPage()
 
-    await screen.findByText('Risk 60')
+    await screen.findByText('Risk 25')
     expect(screen.getByText('60 risks total')).toBeInTheDocument()
-    expect(screen.getAllByRole('row')).toHaveLength(61) // header + 60
+    expect(screen.getAllByRole('row')).toHaveLength(26) // header + 25
+    expect(screen.getByText('Showing 1–25 of 60')).toBeInTheDocument()
   })
 
   it('shows review dates on their calendar day and flags only those due by local today', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date(2026, 8, 22, 21, 30)) // a US evening: already Sep 23 in UTC
-    mockedListAll.mockResolvedValue({
+    mockedList.mockResolvedValue({
       items: [
         makeRisk(1, { next_review_date: '2026-09-22' }),
         makeRisk(2, { next_review_date: '2026-09-23' }),
