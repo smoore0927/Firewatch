@@ -69,6 +69,7 @@ def get_score_totals_by_severity(
 def get_action_queue(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
-    limit: Annotated[int, Query(ge=1, le=200)] = 20,
+    # The queue is built in full either way; the cap only bounds the payload.
+    limit: Annotated[int, Query(ge=1, le=1000)] = 20,
 ) -> ActionQueueResponse:
     return build_action_queue(db, scope_owner_id=_scope_owner_id(current_user), limit=limit)

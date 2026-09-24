@@ -2388,6 +2388,19 @@
             "title": "Created By Id",
             "type": "integer"
           },
+          "current_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Latest assessment's residual score when set, else its inherent score.",
+            "readOnly": true,
+            "title": "Current Score"
+          },
           "description": {
             "anyOf": [
               {
@@ -2460,6 +2473,25 @@
             "title": "Risk Id",
             "type": "string"
           },
+          "severity": {
+            "anyOf": [
+              {
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "critical"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Severity bucket of `current_score`; None while the risk is unscored.",
+            "readOnly": true,
+            "title": "Severity"
+          },
           "status": {
             "$ref": "#/components/schemas/RiskStatus"
           },
@@ -2526,7 +2558,9 @@
           "owner_id",
           "created_by_id",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "current_score",
+          "severity"
         ],
         "title": "RiskResponse",
         "type": "object"
@@ -4846,7 +4880,7 @@
             "required": false,
             "schema": {
               "default": 20,
-              "maximum": 200,
+              "maximum": 1000,
               "minimum": 1,
               "title": "Limit",
               "type": "integer"

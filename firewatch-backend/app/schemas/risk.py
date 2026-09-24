@@ -16,8 +16,9 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, Field, computed_field, field_serializer
 
+from app.core.severity import Severity, current_score as score_of_assessment, severity_for_score
 from app.models.risk import ResponseStatus, ResponseType, RiskStatus
 from app.schemas._datetime import serialize_utc_datetime
 
@@ -201,6 +202,18 @@ class RiskResponse(BaseModel):
     history: list[HistoryResponse] = []
 
     model_config = {"from_attributes": True}
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def current_score(self) -> int | None:
+        """Latest assessment's residual score when set, else its inherent score."""
+        return score_of_assessment(self.assessments[0] if self.assessments else None)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def severity(self) -> Severity | None:
+        """Severity bucket of `current_score`; None while the risk is unscored."""
+        return severity_for_score(self.current_score)
 
     @field_serializer("created_at")
     def _ser_created_at(self, dt: datetime) -> str:

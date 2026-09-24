@@ -192,6 +192,27 @@ def test_list_risks_pagination(client, admin_user, login_as):
     assert len(body["items"]) == 2
 
 
+def test_list_risks_pages_same_second_risks_in_a_stable_order(
+    client, admin_user, login_as
+):
+    # A CSV import creates many risks inside one second (SQLite timestamps have
+    # 1-second resolution), so created_at alone can't order pages: ties must
+    # fall back to id, newest first, or paging repeats some risks and skips others.
+    login_as(admin_user)
+    same_second = "2026-01-15T10:00:00+00:00"
+    created = [
+        _create_risk(client, title=f"R{i}", created_at=same_second)["risk_id"]
+        for i in range(5)
+    ]
+
+    paged: list[str] = []
+    for skip in range(0, 5, 2):
+        body = client.get(f"/api/risks?skip={skip}&limit=2").json()
+        paged.extend(item["risk_id"] for item in body["items"])
+
+    assert paged == list(reversed(created))
+
+
 def test_list_risks_owner_role_only_sees_their_own(
     client, admin_user, owner_user, login_as
 ):
@@ -264,6 +285,31 @@ def test_update_risk_changes_fields_and_logs_history(client, admin_user, login_a
     fields_changed = {h["field_changed"] for h in body["history"]}
     assert "title" in fields_changed
     assert "status" in fields_changed
+
+
+def test_risk_current_score_and_severity_follow_latest_residual(
+    client, admin_user, login_as
+):
+    login_as(admin_user)
+    created = _create_risk(client, likelihood=4, impact=4)
+    assert (created["current_score"], created["severity"]) == (16, "high")
+
+    resp = client.post(
+        f"/api/risks/{created['risk_id']}/assessments",
+        json={"likelihood": 4, "impact": 4, "residual_likelihood": 2, "residual_impact": 2},
+    )
+    assert resp.status_code == 200, resp.text
+    assert (resp.json()["current_score"], resp.json()["severity"]) == (4, "low")
+
+    listed = client.get("/api/risks").json()["items"][0]
+    assert (listed["current_score"], listed["severity"]) == (4, "low")
+
+
+def test_unscored_risk_has_no_current_score_or_severity(client, admin_user, login_as):
+    login_as(admin_user)
+    created = _create_risk(client, likelihood=None, impact=None)
+    assert created["current_score"] is None
+    assert created["severity"] is None
 
 
 def test_update_risk_with_score_creates_new_assessment(client, admin_user, login_as):

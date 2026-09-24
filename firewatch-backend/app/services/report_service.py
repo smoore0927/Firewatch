@@ -6,6 +6,8 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy.orm import Session
 
+from app.core.roles import UserRole
+from app.core.severity import current_likelihood_impact, current_score, severity_for_score
 from app.models.user import User
 from app.schemas.report import (
     ReportDateRange,
@@ -27,15 +29,8 @@ _SEVERITY_RANK = {
 
 
 def _classify(score: int | None) -> str:
-    if score is None:
-        return "Unscored"
-    if score <= 5:
-        return "Low"
-    if score <= 12:
-        return "Medium"
-    if score <= 20:
-        return "High"
-    return "Critical"
+    severity = severity_for_score(score)
+    return severity.capitalize() if severity else "Unscored"
 
 
 def _build_risk_rows(db: Session, user: User) -> list[RiskReportRow]:
@@ -46,10 +41,10 @@ def _build_risk_rows(db: Session, user: User) -> list[RiskReportRow]:
     rows: list[RiskReportRow] = []
     for risk in risks:
         # Risk.assessments is ordered (assessed_at desc, id desc) — first row is latest.
+        # "Current" means residual when assessed, matching the register and dashboard.
         latest = risk.assessments[0] if risk.assessments else None
-        likelihood = latest.likelihood if latest else None
-        impact = latest.impact if latest else None
-        score = latest.risk_score if latest else None
+        likelihood, impact = current_likelihood_impact(latest) or (None, None)
+        score = current_score(latest)
 
         owner_name: str | None = None
         if risk.owner is not None:
@@ -85,8 +80,11 @@ def build_risk_report(
     end: date,
     include_risks: bool,
 ) -> RiskReportResponse:
-    summary = build_summary(db)
-    score_history = build_score_history(db, start, end)
+    # Scope the aggregates exactly like the dashboard endpoints: a risk owner's
+    # report must not carry org-wide totals for risks they cannot see.
+    scope_owner_id = user.id if user.role == UserRole.risk_owner else None
+    summary = build_summary(db, scope_owner_id=scope_owner_id)
+    score_history = build_score_history(db, start, end, scope_owner_id=scope_owner_id)
     risks = _build_risk_rows(db, user) if include_risks else None
 
     return RiskReportResponse(

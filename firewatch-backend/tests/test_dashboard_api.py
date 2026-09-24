@@ -128,6 +128,48 @@ def test_summary_with_data(client, admin_user, login_as):
     assert body["risk_matrix"][2][2] == 1   # 3x3 medium
 
 
+def test_summary_buckets_on_residual_score_when_assessed(client, admin_user, login_as):
+    """Same basis as the register and heatmap: residual when the risk has one."""
+    login_as(admin_user)
+    risk = _create_risk(client, title="Brought down", likelihood=5, impact=5)
+    resp = client.post(
+        f"/api/risks/{risk['risk_id']}/assessments",
+        json={"likelihood": 5, "impact": 5, "residual_likelihood": 1, "residual_impact": 2},
+    )
+    assert resp.status_code == 200, resp.text
+
+    body = client.get("/api/dashboard/summary").json()
+    assert body["by_severity"]["Low"] == 1
+    assert body["by_severity"]["Critical"] == 0
+    assert body["risk_matrix"][0][1] == 1   # residual 1 x 2
+    assert body["risk_matrix"][4][4] == 0
+
+
+def test_summary_counts_a_risk_once_when_latest_assessments_share_a_timestamp(
+    client, admin_user, login_as, db
+):
+    # SQLite timestamps have 1-second resolution, so two quick assessments can
+    # tie. The later row (higher id) is the current one, as in the risk API.
+    same_instant = datetime(2026, 1, 15, 10, 0, tzinfo=timezone.utc)
+    risk = _seed_risk_with_assessment(db, owner=admin_user, score=4, assessed_at=same_instant)
+    db.add(RiskAssessment(
+        risk_id=risk.id,
+        likelihood=4,
+        impact=4,
+        risk_score=16,
+        assessed_by_id=admin_user.id,
+        assessed_at=same_instant,
+    ))
+    db.commit()
+
+    login_as(admin_user)
+    body = client.get("/api/dashboard/summary").json()
+    assert sum(map(sum, body["risk_matrix"])) == 1
+    assert body["risk_matrix"][3][3] == 1
+    assert body["by_severity"]["High"] == 1
+    assert body["by_severity"]["Low"] == 0
+
+
 def test_summary_unauthenticated_returns_401(client):
     resp = client.get("/api/dashboard/summary")
     assert resp.status_code == 401
@@ -1120,6 +1162,12 @@ def _add_response_for_risk(
     db.commit()
     db.refresh(resp)
     return resp
+
+
+def test_action_queue_accepts_limits_up_to_1000(client, admin_user, login_as):
+    login_as(admin_user)
+    assert client.get("/api/dashboard/action-queue?limit=1000").status_code == 200
+    assert client.get("/api/dashboard/action-queue?limit=1001").status_code == 422
 
 
 def test_action_queue_empty_state(client, admin_user, login_as):
