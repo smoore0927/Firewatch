@@ -18,6 +18,7 @@ import { truncate } from '@/lib/format'
 import { calendarDay, formatCalendarDate, todayLocalISODate } from '@/lib/dates'
 import { FIELD_LABELS, buildTimeline, buildEditHistory } from '@/lib/risk-timeline'
 import type { TimelineEntry, EditCommit } from '@/lib/risk-timeline'
+import { registerPath } from '@/lib/register-view'
 import { currentScore, scoreLabel, formatLikelihoodImpact } from '@/types'
 import type { Risk, RiskAssessment, RiskHistory, RiskResponse, RiskStatus, ResponseCreate, ResponseStatus, ResponseType, ResponseUpdate, User, Control, ControlFamily, ControlFramework, RiskControlMapping, RiskControlCreate } from '@/types'
 import { Badge, scoreToBadgeVariant } from '@/components/ui/badge'
@@ -1740,7 +1741,7 @@ export default function RiskDetailPage() {
     try {
       await risksApi.delete(riskId)
       setIsDeleteOpen(false)
-      navigate('/risks')
+      void navigate(registerPath())
     } catch (err) {
       if (err instanceof ApiError) {
         setDeleteError(err.message)
@@ -1797,7 +1798,7 @@ export default function RiskDetailPage() {
         isSavingStatus={isSavingStatus}
         onStatusChange={handleStatusChange}
         onEdit={() => navigate(`/risks/${risk.risk_id}/edit`)}
-        onBack={() => navigate('/risks')}
+        onBack={() => navigate(registerPath())}
         onRequestDelete={() => { setDeleteError(null); setIsDeleteOpen(true) }}
       />
 

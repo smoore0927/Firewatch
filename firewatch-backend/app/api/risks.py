@@ -19,7 +19,7 @@ RBAC summary:
 """
 
 from datetime import date
-from typing import Annotated, Optional
+from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
 from sqlalchemy.orm import Session
@@ -34,15 +34,16 @@ from app.schemas.risk import (
     BulkReassignRequest,
     BulkRiskError,
     BulkRiskResult,
-    BulkStatusRequest,
     ImportResult,
     ImportResultRow,
     ResponseCreate,
     ResponseUpdate,
     RiskCreate,
     RiskListResponse,
+    RiskOwnerSummary,
     RiskResponse,
     RiskUpdate,
+    BulkStatusRequest,
 )
 from app.services.audit_service import record_event
 from app.services.csv_service import (
@@ -51,7 +52,7 @@ from app.services.csv_service import (
     risks_to_csv,
     validate_import_headers,
 )
-from app.services.risk_service import RiskService
+from app.services.risk_service import RiskService, SortKey, SortOrder
 
 router = APIRouter(prefix="/risks", tags=["Risks"])
 
@@ -65,6 +66,10 @@ def list_risks(
     category: Annotated[Optional[str], Query()] = None,
     owner_id: Annotated[Optional[int], Query()] = None,
     due_for_review: Annotated[Optional[bool], Query()] = None,
+    search: Annotated[Optional[str], Query(max_length=200)] = None,
+    severity: Annotated[Optional[Literal["low", "medium", "high", "critical", "unscored"]], Query()] = None,
+    sort: Annotated[Optional[SortKey], Query()] = None,
+    order: Annotated[SortOrder, Query()] = "asc",
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     db: Annotated[Session, Depends(get_db)],
@@ -77,10 +82,23 @@ def list_risks(
         category=category,
         owner_id=owner_id,
         due_for_review=due_for_review,
+        search=search,
+        severity=severity,
+        sort=sort,
+        order=order,
         skip=skip,
         limit=limit,
     )
     return RiskListResponse(**result)
+
+
+@router.get("/owners")
+def list_owners(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> list[RiskOwnerSummary]:
+    """Distinct owners of risks visible to the caller, for the register's Owner filter."""
+    return RiskService(db).list_owners(current_user=current_user)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

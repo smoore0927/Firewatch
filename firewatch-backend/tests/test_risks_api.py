@@ -1250,3 +1250,404 @@ def test_risk_response_naive_db_datetime_serialized_as_utc(
     assessed_at = body["assessments"][0]["assessed_at"]
     # Wire format must explicitly mark the value as UTC.
     assert assessed_at == "2026-05-26T03:00:00+00:00", assessed_at
+
+
+# ---------------------------------------------------------------------------
+# GET /api/risks — search
+# ---------------------------------------------------------------------------
+
+
+def test_list_risks_search_matches_title(client, admin_user, login_as):
+    login_as(admin_user)
+    _create_risk(client, title="Ransomware exposure")
+    _create_risk(client, title="Vendor risk")
+    body = client.get("/api/risks?search=ransomware").json()
+    assert body["total"] == 1
+    assert body["items"][0]["title"] == "Ransomware exposure"
+
+
+def test_list_risks_search_matches_description(client, admin_user, login_as):
+    login_as(admin_user)
+    _create_risk(client, title="A", description="Unpatched VPN appliance")
+    _create_risk(client, title="B", description="Unrelated")
+    body = client.get("/api/risks?search=vpn").json()
+    assert body["total"] == 1
+    assert body["items"][0]["title"] == "A"
+
+
+def test_list_risks_search_matches_risk_id(client, admin_user, login_as):
+    login_as(admin_user)
+    created = _create_risk(client, title="A")
+    _create_risk(client, title="B")
+    body = client.get(f"/api/risks?search={created['risk_id']}").json()
+    assert body["total"] == 1
+    assert body["items"][0]["risk_id"] == created["risk_id"]
+
+
+def test_list_risks_search_matches_owner_name(client, admin_user, owner_user, login_as):
+    login_as(admin_user)
+    _create_risk(client, title="Owned", owner_id=owner_user.id)
+    _create_risk(client, title="Not owned", owner_id=admin_user.id)
+    body = client.get(f"/api/risks?search={owner_user.full_name}").json()
+    assert body["total"] == 1
+    assert body["items"][0]["title"] == "Owned"
+
+
+def test_list_risks_search_percent_is_literal(client, admin_user, login_as):
+    login_as(admin_user)
+    # Neither title contains a literal "%" — if the LIKE wildcard weren't
+    # escaped, "A%B" would match "AxB" (any chars between A and B).
+    _create_risk(client, title="AxB risk")
+    _create_risk(client, title="50% outage risk")
+    body = client.get("/api/risks?search=A%25B").json()
+    assert body["total"] == 0
+
+    body = client.get("/api/risks?search=50%25").json()
+    assert body["total"] == 1
+    assert body["items"][0]["title"] == "50% outage risk"
+
+
+def test_list_risks_search_underscore_is_literal(client, admin_user, login_as):
+    login_as(admin_user)
+    # If "_" weren't escaped, it would match any single character, so "A_B"
+    # would match "AXB" even though neither title contains a literal "_".
+    _create_risk(client, title="AXB risk")
+    _create_risk(client, title="Unrelated")
+    body = client.get("/api/risks?search=A_B").json()
+    assert body["total"] == 0
+
+
+def test_list_risks_search_blank_is_ignored(client, admin_user, login_as):
+    login_as(admin_user)
+    _create_risk(client, title="A")
+    _create_risk(client, title="B")
+    body = client.get("/api/risks?search=   ").json()
+    assert body["total"] == 2
+
+
+def test_list_risks_search_case_insensitive(client, admin_user, login_as):
+    login_as(admin_user)
+    _create_risk(client, title="Phishing Risk")
+    body = client.get("/api/risks?search=PHISHING").json()
+    assert body["total"] == 1
+
+
+def test_list_risks_search_too_long_returns_422(client, admin_user, login_as):
+    login_as(admin_user)
+    resp = client.get(f"/api/risks?search={'a' * 201}")
+    assert resp.status_code == 422
+
+
+def test_list_risks_search_with_owner_scoping(
+    client, admin_user, owner_user, owner_user_b, login_as
+):
+    login_as(admin_user)
+    _create_risk(client, title="Owner A risk", owner_id=owner_user.id)
+    _create_risk(client, title="Owner B risk", owner_id=owner_user_b.id)
+    client.post("/api/auth/logout")
+    client.cookies.clear()
+    login_as(owner_user)
+    body = client.get("/api/risks?search=risk").json()
+    assert body["total"] == 1
+    assert body["items"][0]["title"] == "Owner A risk"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/risks — severity filter
+# ---------------------------------------------------------------------------
+
+
+def test_list_risks_severity_buckets(client, admin_user, login_as):
+    login_as(admin_user)
+    _create_risk(client, title="Low", likelihood=1, impact=2)       # score 2
+    _create_risk(client, title="Medium", likelihood=3, impact=3)    # score 9
+    _create_risk(client, title="High", likelihood=4, impact=4)      # score 16
+    _create_risk(client, title="Critical", likelihood=5, impact=5)  # score 25
+    _create_risk(client, title="Unscored", likelihood=None, impact=None)
+
+    for severity, expected_title in [
+        ("low", "Low"),
+        ("medium", "Medium"),
+        ("high", "High"),
+        ("critical", "Critical"),
+        ("unscored", "Unscored"),
+    ]:
+        body = client.get(f"/api/risks?severity={severity}").json()
+        assert body["total"] == 1, severity
+        assert body["items"][0]["title"] == expected_title, severity
+
+
+def test_list_risks_severity_uses_residual_score_over_inherent(client, admin_user, login_as):
+    login_as(admin_user)
+    created = _create_risk(client, likelihood=5, impact=5)  # inherent 25, critical
+    client.post(
+        f"/api/risks/{created['risk_id']}/assessments",
+        json={"likelihood": 5, "impact": 5, "residual_likelihood": 1, "residual_impact": 1},
+    )
+    # Residual score (1) puts it in "low", not "critical".
+    assert client.get("/api/risks?severity=critical").json()["total"] == 0
+    body = client.get("/api/risks?severity=low").json()
+    assert body["total"] == 1
+    assert body["items"][0]["risk_id"] == created["risk_id"]
+
+
+def test_list_risks_severity_invalid_returns_422(client, admin_user, login_as):
+    login_as(admin_user)
+    resp = client.get("/api/risks?severity=extreme")
+    assert resp.status_code == 422
+
+
+def _minimal_risk(client, **overrides) -> dict:
+    """Create a risk with no incidental "phishing" text in the other fields."""
+    payload = {
+        "title": overrides.pop("title"),
+        "description": "",
+        "threat_source": "",
+        "threat_event": "",
+        "vulnerability": "",
+        "affected_asset": "",
+        "category": "General",
+    }
+    payload.update(overrides)
+    resp = client.post("/api/risks", json=payload)
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+def test_list_risks_total_reflects_search_and_severity(client, admin_user, login_as):
+    login_as(admin_user)
+    _minimal_risk(client, title="Phishing high", likelihood=4, impact=4)
+    _minimal_risk(client, title="Phishing low", likelihood=1, impact=1)
+    _minimal_risk(client, title="Other risk", likelihood=4, impact=4)
+    body = client.get("/api/risks?search=phishing&severity=high").json()
+    assert body["total"] == 1
+    assert body["items"][0]["title"] == "Phishing high"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/risks — sort / order
+# ---------------------------------------------------------------------------
+
+
+def test_list_risks_default_order_unchanged_when_sort_omitted(client, admin_user, login_as):
+    login_as(admin_user)
+    same_second = "2026-01-15T10:00:00+00:00"
+    created = [
+        _create_risk(client, title=f"R{i}", created_at=same_second)["risk_id"]
+        for i in range(3)
+    ]
+    body = client.get("/api/risks").json()
+    assert [item["risk_id"] for item in body["items"]] == list(reversed(created))
+
+
+def test_list_risks_sort_by_id(client, admin_user, login_as):
+    login_as(admin_user)
+    a = _create_risk(client, title="A")
+    b = _create_risk(client, title="B")
+    c = _create_risk(client, title="C")
+
+    body = client.get("/api/risks?sort=id&order=asc").json()
+    assert [i["risk_id"] for i in body["items"]] == [a["risk_id"], b["risk_id"], c["risk_id"]]
+
+    body = client.get("/api/risks?sort=id&order=desc").json()
+    assert [i["risk_id"] for i in body["items"]] == [c["risk_id"], b["risk_id"], a["risk_id"]]
+
+
+def test_list_risks_sort_by_title(client, admin_user, login_as):
+    login_as(admin_user)
+    _create_risk(client, title="Charlie")
+    _create_risk(client, title="alpha")
+    _create_risk(client, title="Bravo")
+
+    body = client.get("/api/risks?sort=title&order=asc").json()
+    assert [i["title"] for i in body["items"]] == ["alpha", "Bravo", "Charlie"]
+
+    body = client.get("/api/risks?sort=title&order=desc").json()
+    assert [i["title"] for i in body["items"]] == ["Charlie", "Bravo", "alpha"]
+
+
+def test_list_risks_sort_by_category_nulls_last_both_directions(client, admin_user, login_as):
+    login_as(admin_user)
+    _create_risk(client, title="NoCategory", category=None)
+    _create_risk(client, title="Zebra", category="Zebra")
+    _create_risk(client, title="Alpha", category="Alpha")
+
+    body = client.get("/api/risks?sort=category&order=asc").json()
+    assert [i["title"] for i in body["items"]] == ["Alpha", "Zebra", "NoCategory"]
+
+    body = client.get("/api/risks?sort=category&order=desc").json()
+    assert [i["title"] for i in body["items"]] == ["Zebra", "Alpha", "NoCategory"]
+
+
+def test_list_risks_sort_by_score_unscored_is_lowest(client, admin_user, login_as):
+    login_as(admin_user)
+    _create_risk(client, title="Unscored", likelihood=None, impact=None)
+    _create_risk(client, title="Low", likelihood=1, impact=1)
+    _create_risk(client, title="High", likelihood=4, impact=4)
+
+    body = client.get("/api/risks?sort=score&order=asc").json()
+    assert [i["title"] for i in body["items"]] == ["Unscored", "Low", "High"]
+
+    body = client.get("/api/risks?sort=score&order=desc").json()
+    assert [i["title"] for i in body["items"]] == ["High", "Low", "Unscored"]
+
+
+def test_list_risks_sort_by_status(client, admin_user, login_as, db):
+    login_as(admin_user)
+    a = _create_risk(client, title="A")
+    b = _create_risk(client, title="B")
+    risk_a = db.query(Risk).filter(Risk.risk_id == a["risk_id"]).first()
+    risk_a.status = RiskStatus.closed
+    db.commit()
+
+    body = client.get("/api/risks?sort=status&order=asc").json()
+    statuses = [i["status"] for i in body["items"]]
+    assert statuses == sorted(statuses)
+
+
+def test_list_risks_sort_by_owner(client, admin_user, owner_user, owner_user_b, login_as):
+    login_as(admin_user)
+    _create_risk(client, title="Owned by B", owner_id=owner_user_b.id)
+    _create_risk(client, title="Owned by A", owner_id=owner_user.id)
+
+    body = client.get("/api/risks?sort=owner&order=asc").json()
+    owner_names_in_order = [i["owner"]["full_name"] for i in body["items"]]
+    assert owner_names_in_order == sorted(owner_names_in_order, key=str.lower)
+
+
+def test_list_risks_sort_by_next_review_nulls_last_both_directions(client, admin_user, login_as):
+    login_as(admin_user)
+    _create_risk(client, title="NoDate")
+    _create_risk(
+        client,
+        title="Later",
+        review_frequency_days=30,
+        next_review_date=(date.today() + timedelta(days=30)).isoformat(),
+    )
+    _create_risk(
+        client,
+        title="Sooner",
+        review_frequency_days=30,
+        next_review_date=(date.today() + timedelta(days=1)).isoformat(),
+    )
+
+    body = client.get("/api/risks?sort=next_review&order=asc").json()
+    assert [i["title"] for i in body["items"]] == ["Sooner", "Later", "NoDate"]
+
+    body = client.get("/api/risks?sort=next_review&order=desc").json()
+    assert [i["title"] for i in body["items"]] == ["Later", "Sooner", "NoDate"]
+
+
+def test_list_risks_sort_invalid_returns_422(client, admin_user, login_as):
+    login_as(admin_user)
+    resp = client.get("/api/risks?sort=bogus")
+    assert resp.status_code == 422
+
+
+def test_list_risks_order_invalid_returns_422(client, admin_user, login_as):
+    login_as(admin_user)
+    resp = client.get("/api/risks?sort=id&order=sideways")
+    assert resp.status_code == 422
+
+
+def test_list_risks_sort_stable_paging_with_ties(client, admin_user, login_as):
+    """All risks share the same category (a heavy tie), so the id.desc()
+    tiebreak must still produce a stable, gap-free, repeat-free page walk."""
+    login_as(admin_user)
+    created = [
+        _create_risk(client, title=f"R{i}", category="Same")["risk_id"] for i in range(9)
+    ]
+
+    seen: list[str] = []
+    for skip in range(0, 9, 4):
+        body = client.get(f"/api/risks?sort=category&order=asc&skip={skip}&limit=4").json()
+        seen.extend(i["risk_id"] for i in body["items"])
+
+    assert len(seen) == len(set(seen)), "paging produced duplicates"
+    assert set(seen) == set(created), "paging missed some risks"
+
+
+def test_list_risks_sort_with_owner_scoping_still_enforced(
+    client, admin_user, owner_user, owner_user_b, login_as
+):
+    login_as(admin_user)
+    _create_risk(client, title="Owner A risk", owner_id=owner_user.id)
+    _create_risk(client, title="Owner B risk", owner_id=owner_user_b.id)
+    client.post("/api/auth/logout")
+    client.cookies.clear()
+    login_as(owner_user)
+    body = client.get("/api/risks?sort=title&order=asc").json()
+    assert body["total"] == 1
+    assert body["items"][0]["title"] == "Owner A risk"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/risks/owners
+# ---------------------------------------------------------------------------
+
+
+def test_list_owners_returns_distinct_owners_sorted(
+    client, admin_user, owner_user, owner_user_b, login_as
+):
+    login_as(admin_user)
+    _create_risk(client, title="A", owner_id=owner_user_b.id)
+    _create_risk(client, title="B", owner_id=owner_user_b.id)  # same owner, should dedupe
+    _create_risk(client, title="C", owner_id=owner_user.id)
+
+    resp = client.get("/api/risks/owners")
+    assert resp.status_code == 200
+    body = resp.json()
+    names = [o["full_name"] for o in body]
+    assert len(names) == len(set(o["id"] for o in body))
+    assert names == sorted(names, key=str.lower)
+    owner_ids = {o["id"] for o in body}
+    assert owner_ids == {owner_user.id, owner_user_b.id}
+
+
+def test_list_owners_risk_owner_sees_only_self(
+    client, admin_user, owner_user, owner_user_b, login_as
+):
+    login_as(admin_user)
+    _create_risk(client, title="A", owner_id=owner_user.id)
+    _create_risk(client, title="B", owner_id=owner_user_b.id)
+    client.post("/api/auth/logout")
+    client.cookies.clear()
+    login_as(owner_user)
+    resp = client.get("/api/risks/owners")
+    body = resp.json()
+    assert [o["id"] for o in body] == [owner_user.id]
+
+
+def test_list_owners_executive_viewer_allowed(client, admin_user, viewer_user, login_as):
+    login_as(admin_user)
+    _create_risk(client, title="A", owner_id=admin_user.id)
+    client.post("/api/auth/logout")
+    client.cookies.clear()
+    login_as(viewer_user)
+    resp = client.get("/api/risks/owners")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+
+
+def test_list_owners_excludes_owners_of_only_soft_deleted_risks(
+    client, admin_user, owner_user, login_as
+):
+    login_as(admin_user)
+    created = _create_risk(client, title="Will be deleted", owner_id=owner_user.id)
+    client.delete(f"/api/risks/{created['risk_id']}")
+    resp = client.get("/api/risks/owners")
+    body = resp.json()
+    assert owner_user.id not in {o["id"] for o in body}
+
+
+def test_list_owners_unauthenticated_returns_401(client):
+    resp = client.get("/api/risks/owners")
+    assert resp.status_code == 401
+
+
+def test_owners_route_not_captured_by_risk_id_path(client, admin_user, login_as):
+    """`/owners` must resolve to the owners endpoint, not GET /{risk_id}."""
+    login_as(admin_user)
+    resp = client.get("/api/risks/owners")
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)

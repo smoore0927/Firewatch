@@ -5,7 +5,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { Risk, User } from '@/types'
 
 vi.mock('@/services/api', () => {
@@ -52,6 +52,7 @@ vi.mock('@/context/AuthContext', () => ({
 }))
 
 import { ApiError, risksApi } from '@/services/api'
+import { rememberRegisterSearch } from '@/lib/register-view'
 import RiskDetailPage from '@/pages/RiskDetailPage'
 
 const mockedGet = risksApi.get as unknown as ReturnType<typeof vi.fn>
@@ -145,5 +146,35 @@ describe('RiskDetailPage inline edits', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/could not refresh/i)
     expect(screen.getByRole('heading', { name: 'Test Risk' })).toBeInTheDocument()
+  })
+})
+
+describe('RiskDetailPage back link', () => {
+  function RegisterProbe() {
+    const location = useLocation()
+    return <p data-testid="register-url">{location.pathname + location.search}</p>
+  }
+
+  beforeEach(() => {
+    mockedGet.mockReset()
+    mockedGet.mockResolvedValue(makeRisk())
+    sessionStorage.clear()
+  })
+
+  it('returns to the register page and filters the user left', async () => {
+    rememberRegisterSearch('?status=open&page=2')
+    render(
+      <MemoryRouter initialEntries={['/risks/RISK-001']}>
+        <Routes>
+          <Route path="/risks/:riskId" element={<RiskDetailPage />} />
+          <Route path="/risks" element={<RegisterProbe />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    await screen.findByRole('heading', { name: 'Test Risk' })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Risk Register' }))
+
+    expect(await screen.findByTestId('register-url')).toHaveTextContent('/risks?status=open&page=2')
   })
 })
